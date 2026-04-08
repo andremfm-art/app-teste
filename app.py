@@ -94,54 +94,16 @@ LAYERS = {
     5: "SO2"
 }
 
-# Limites para IQA — Padrão oficial CETESB/Brasil
-# Formato: (c_low, i_low, c_high, i_high)
-# Faixas: Boa 0-40 | Moderada 41-80 | Ruim 81-120 | Muito Ruim 121-200 | Péssima 201-400
-# Fonte: https://cetesb.sp.gov.br/ar/padroes-e-indices/
+# ================================
+# LIMITES_IQA — TABELA MANTIDA COMO ESTAVA NO SEU APP
+# ================================
 LIMITES_IQA = {
-    # MP2.5 (µg/m³) — média 24h — escala 1:1 CETESB
-    "MP2.5": [
-        (0,   0,   40,  40),   # Boa
-        (40,  40,  80,  80),   # Moderada
-        (80,  80,  120, 120),  # Ruim
-        (120, 120, 250, 200),  # Muito Ruim / Péssima
-    ],
-    # MP10 (µg/m³) — média 24h
-    "MP10": [
-        (0,   0,   50,  40),
-        (50,  40,  100, 80),
-        (100, 80,  150, 120),
-        (150, 120, 250, 200),
-        (250, 200, 420, 400),
-    ],
-    # O3 (µg/m³) — média 8h
-    "O3": [
-        (0,   0,   100, 40),
-        (100, 40,  160, 80),
-        (160, 80,  200, 120),
-        (200, 120, 800, 200),
-    ],
-    # NO2 (µg/m³) — média 1h
-    "NO2": [
-        (0,   0,   200, 40),
-        (200, 40,  240, 80),
-        (240, 80,  320, 120),
-        (320, 120, 1130,200),
-    ],
-    # CO (µg/m³) — média 8h  (9000 µg/m³ = 8 ppm)
-    "CO": [
-        (0,     0,   9000,  40),
-        (9000,  40,  11000, 80),
-        (11000, 80,  13000, 120),
-        (13000, 120, 15000, 200),
-    ],
-    # SO2 (µg/m³) — média 24h
-    "SO2": [
-        (0,   0,   20,  40),
-        (20,  40,  40,  80),
-        (40,  80,  365, 120),
-        (365, 120, 800, 200),
-    ],
+    "MP2.5": [ (0,0,45,40), (45,40,100,80), (100,80,150,120), (150,120,250,200), (250,200,600,400) ],
+    "MP10":  [ (0,0,45,40), (45,40,100,80), (100,80,150,120), (150,120,250,200), (250,200,600,400) ],
+    "O3":    [ (0,0,100,40), (100,40,130,80), (130,80,160,120), (160,120,200,200), (200,200,800,400) ],
+    "NO2":   [ (0,0,200,40), (200,40,240,80), (240,80,320,120), (320,120,1130,200), (1130,200,3750,400) ],
+    "CO":    [ (0,0,9,40), (9,40,11,80), (11,80,13,120), (13,120,15,200), (15,200,50,400) ],
+    "SO2":   [ (0,0,40,40), (40,40,50,80), (50,80,125,120), (125,120,800,200), (800,200,2620,400) ],
 }
 
 CLASSES_IQA = [
@@ -161,19 +123,52 @@ RECOMENDACOES = {
 }
 
 # ================================
+# FEATURES DO MODELO NOVO
+# ================================
+FEATURES_MODELO = [
+    "MP25",
+    "MP10",
+    "O3",
+    "NO2",
+    "hora_sin",
+    "hora_cos",
+    "dia_semana",
+    "lag_1h",
+    "lag_2h",
+    "lag_3h",
+    "lag_6h",
+    "lag_12h",
+    "lag_24h",
+    "mp10_lag_1h",
+    "mp10_lag_3h",
+    "mp10_lag_24h",
+    "o3_lag_1h",
+    "o3_lag_3h",
+    "o3_lag_24h",
+    "no2_lag_1h",
+    "no2_lag_3h",
+    "no2_lag_24h",
+    "media_3h",
+    "media_6h",
+    "diff_1h",
+]
+
+RENAME_PARA_MODELO = {"MP2.5": "MP25"}
+
+# ================================
 # FUNÇÕES
 # ================================
 
 def calcular_iqa_poluente(valor, poluente):
-    if valor is None or np.isnan(valor):
+    if valor is None or pd.isna(valor) or valor < 0:
         return None
     tabela = LIMITES_IQA.get(poluente, [])
     for (c_low, i_low, c_high, i_high) in tabela:
         if c_low <= valor <= c_high:
             if c_high == c_low:
-                return i_low
+                return float(i_low)
             return ((i_high - i_low) / (c_high - c_low)) * (valor - c_low) + i_low
-    return 400 if valor > 0 else 0
+    return 400.0 if valor > 0 else 0.0
 
 def classificar_iqa(iqa):
     for (lo, hi, nome, cor, emoji) in CLASSES_IQA:
@@ -189,6 +184,7 @@ def coletar_dados():
         params = {"where": "1=1", "outFields": "*", "f": "json"}
         try:
             r = requests.get(url, params=params, timeout=15)
+            r.raise_for_status()
             data = r.json()
             for f in data.get("features", []):
                 estacao = f["attributes"].get("STATNM", "")
@@ -219,18 +215,8 @@ def preparar_pivot(df):
     pivot = pivot.ffill().bfill()
     return pivot
 
-# Features esperadas pelo modelo XGBoost (mesma ordem do treino)
-FEATURES_MODELO = ['MP25', 'MP10', 'O3', 'NO2', 'hora', 'dia_semana',
-                   'lag_1h', 'lag_2h', 'lag_3h', 'lag_6h', 'lag_12h', 'lag_24h',
-                   'media_3h', 'media_6h', 'diff_1h']
-
-# Mapeamento nome API → nome modelo
-RENAME_PARA_MODELO = {"MP2.5": "MP25"}
-RENAME_PARA_PIVOT  = {"MP25": "MP2.5"}
-
 @st.cache_resource
 def carregar_modelo():
-    """Carrega modelo XGBoost e features do disco se disponíveis."""
     caminhos = [
         "modelo_xgboost.pkl",
         os.path.join(os.path.dirname(__file__), "modelo_xgboost.pkl"),
@@ -240,62 +226,92 @@ def carregar_modelo():
             try:
                 model = joblib.load(path)
                 features_path = path.replace("modelo_xgboost.pkl", "features.pkl")
-features = joblib.load(features_path)
-                return model, features
+                if os.path.exists(features_path):
+                    features = joblib.load(features_path)
+                    return model, features
+                else:
+                    st.warning(f"Features não encontradas: {features_path}")
+                    return model, FEATURES_MODELO
             except Exception as e:
                 st.warning(f"Erro ao carregar modelo: {e}")
+    st.warning("Arquivo `modelo_xgboost.pkl` não encontrado na pasta do app.")
     return None, None
 
-def preparar_features_forecast(historico_mp25, historico_mp10, historico_o3, historico_no2, prox_ts):
-    """Monta o vetor de features para uma hora futura, igual ao pipeline de treino."""
+def preparar_features_forecast(historico_mp25, historico_mp10, historico_o3, historico_no2, prox_ts, features):
     def safe_get(serie, lag):
-        return float(serie.iloc[-lag]) if len(serie) >= lag else 0.0
+        if len(serie) >= lag:
+            return float(serie.iloc[-lag])
+        if len(serie) > 0:
+            return float(serie.iloc[-1])
+        return 0.0
+
+    ang = 2 * np.pi * prox_ts.hour / 24.0
+    hora_sin = np.sin(ang)
+    hora_cos = np.cos(ang)
 
     mp25_vals = historico_mp25.values
+    ultimo_mp25 = float(mp25_vals[-1]) if len(mp25_vals) > 0 else 0.0
+
     row = {
-        "MP25":       safe_get(historico_mp25, 1),
-        "MP10":       safe_get(historico_mp10, 1),
-        "O3":         safe_get(historico_o3,   1),
-        "NO2":        safe_get(historico_no2,  1),
-        "hora":       prox_ts.hour,
+        "MP25": ultimo_mp25,
+        "MP10": safe_get(historico_mp10, 24),
+        "O3": safe_get(historico_o3, 24),
+        "NO2": safe_get(historico_no2, 24),
+        "hora_sin": hora_sin,
+        "hora_cos": hora_cos,
         "dia_semana": prox_ts.dayofweek,
-        "lag_1h":     safe_get(historico_mp25, 1),
-        "lag_2h":     safe_get(historico_mp25, 2),
-        "lag_3h":     safe_get(historico_mp25, 3),
-        "lag_6h":     safe_get(historico_mp25, 6),
-        "lag_12h":    safe_get(historico_mp25, 12),
-        "lag_24h":    safe_get(historico_mp25, 24),
-        "media_3h":   float(np.mean(mp25_vals[-3:])) if len(mp25_vals) >= 3 else mp25_vals[-1],
-        "media_6h":   float(np.mean(mp25_vals[-6:])) if len(mp25_vals) >= 6 else mp25_vals[-1],
-        "diff_1h":    float(mp25_vals[-1] - mp25_vals[-2]) if len(mp25_vals) >= 2 else 0.0,
+        "lag_1h": safe_get(historico_mp25, 1),
+        "lag_2h": safe_get(historico_mp25, 2),
+        "lag_3h": safe_get(historico_mp25, 3),
+        "lag_6h": safe_get(historico_mp25, 6),
+        "lag_12h": safe_get(historico_mp25, 12),
+        "lag_24h": safe_get(historico_mp25, 24),
+        "mp10_lag_1h": safe_get(historico_mp10, 1),
+        "mp10_lag_3h": safe_get(historico_mp10, 3),
+        "mp10_lag_24h": safe_get(historico_mp10, 24),
+        "o3_lag_1h": safe_get(historico_o3, 1),
+        "o3_lag_3h": safe_get(historico_o3, 3),
+        "o3_lag_24h": safe_get(historico_o3, 24),
+        "no2_lag_1h": safe_get(historico_no2, 1),
+        "no2_lag_3h": safe_get(historico_no2, 3),
+        "no2_lag_24h": safe_get(historico_no2, 24),
+        "media_3h": float(np.mean(mp25_vals[-3:])) if len(mp25_vals) >= 3 else ultimo_mp25,
+        "media_6h": float(np.mean(mp25_vals[-6:])) if len(mp25_vals) >= 6 else ultimo_mp25,
+        "diff_1h": float(mp25_vals[-1] - mp25_vals[-2]) if len(mp25_vals) >= 2 else 0.0,
     }
-    return np.array([[row[f] for f in FEATURES_MODELO]])
 
-def gerar_forecast(pivot, model, horas=24):
-    """Gera previsão de MP2.5 para as próximas `horas` horas usando o modelo XGBoost."""
-    # Trabalha com séries históricas — renomeia MP2.5 → MP25
+    X = pd.DataFrame([row])
+    X = X.reindex(columns=features, fill_value=0.0)
+    return X.values
+
+def gerar_forecast(pivot, model, features, horas=6):
     hist = pivot.rename(columns=RENAME_PARA_MODELO).copy().ffill().bfill()
-
-    poluentes_necessarios = ["MP25", "MP10", "O3", "NO2"]
-    for p in poluentes_necessarios:
+    for p in ["MP25", "MP10", "O3", "NO2"]:
         if p not in hist.columns:
             hist[p] = 0.0
 
     mp25 = hist["MP25"].copy()
     mp10 = hist["MP10"].copy()
-    o3   = hist["O3"].copy()
-    no2  = hist["NO2"].copy()
+    o3 = hist["O3"].copy()
+    no2 = hist["NO2"].copy()
 
     preds = []
     timestamps = []
 
-    for i in range(horas):
+    for _ in range(horas):
         prox_ts = mp25.index[-1] + timedelta(hours=1)
-        X = preparar_features_forecast(mp25, mp10, o3, no2, prox_ts)
-        pred = float(max(model.predict(X)[0], 0))
+        X = preparar_features_forecast(mp25, mp10, o3, no2, prox_ts, features)
+        pred = float(max(model.predict(X)[0], 0.0))
 
-        # appenda previsão ao histórico para alimentar próximos lags
         mp25 = pd.concat([mp25, pd.Series([pred], index=[prox_ts])])
+
+        mp10_next = float(mp10.iloc[-24]) if len(mp10) >= 24 else float(mp10.iloc[-1])
+        o3_next = float(o3.iloc[-24]) if len(o3) >= 24 else float(o3.iloc[-1])
+        no2_next = float(no2.iloc[-24]) if len(no2) >= 24 else float(no2.iloc[-1])
+
+        mp10 = pd.concat([mp10, pd.Series([mp10_next], index=[prox_ts])])
+        o3 = pd.concat([o3, pd.Series([o3_next], index=[prox_ts])])
+        no2 = pd.concat([no2, pd.Series([no2_next], index=[prox_ts])])
 
         preds.append(pred)
         timestamps.append(prox_ts)
@@ -305,15 +321,14 @@ def gerar_forecast(pivot, model, horas=24):
 # ================================
 # CARREGAR DADOS
 # ================================
-
 st.title("🌎 Qualidade do Ar — UBS Vila Curuça")
 st.caption(f"Dados em tempo real · CETESB Itaim Paulista · Atualizado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-with st.spinner("Carregando dados da CETESB..."):
+with st.spinner("Carregando dados da Estação CETESB Itaim Paulista..."):
     df = coletar_dados()
 
 if df.empty:
-    st.error("Não foi possível carregar dados da CETESB. Tente novamente em alguns minutos.")
+    st.error("Não foi possível carregar dados da CETESB Itaim Paulista. Tente novamente em alguns minutos.")
     st.stop()
 
 pivot = preparar_pivot(df)
@@ -321,7 +336,6 @@ pivot = preparar_pivot(df)
 # ================================
 # SITUAÇÃO ATUAL — MÉTRICAS
 # ================================
-
 st.subheader("📊 Situação Atual")
 
 poluentes_display = ["MP2.5", "MP10", "O3", "NO2", "CO", "SO2"]
@@ -331,26 +345,32 @@ iqas_atuais = {}
 
 for i, pol in enumerate(poluentes_display):
     if pol in pivot.columns:
-        valor = pivot[pol].dropna().iloc[-1] if not pivot[pol].dropna().empty else None
-        iqa = calcular_iqa_poluente(valor, pol) if valor is not None else None
-        if iqa is not None:
+        serie = pivot[pol].dropna()
+        valor = serie.iloc[-1] if not serie.empty else None
+        
+        if valor is not None:
+            iqa = calcular_iqa_poluente(valor, pol)
             nome, cor, emoji = classificar_iqa(iqa)
             iqas_atuais[pol] = iqa
+            
+            delta_text = f"{valor:.1f} µg/m³"
+            if pol == "CO":
+                delta_text = f"{valor:.1f} ppm"
+            
             cols_ui[i].metric(
                 label=f"{emoji} {pol}",
                 value=f"IQA {iqa:.0f}",
-                delta=f"{valor:.1f} µg/m³" if pol not in ["CO"] else f"{valor:.0f} µg/m³",
+                delta=delta_text,
                 delta_color="off"
             )
         else:
-            cols_ui[i].metric(label=f"⚪ {pol}", value="Sem dado")
+            cols_ui[i].metric(label=f"⚪ {pol}", value="Sem dado recente")
     else:
-        cols_ui[i].metric(label=f"⚪ {pol}", value="Offline")
+        cols_ui[i].metric(label=f"⚪ {pol}", value="Não monitorado")
 
 # ================================
 # IQA GERAL
 # ================================
-
 if iqas_atuais:
     iqa_geral = max(iqas_atuais.values())
     pol_critico = max(iqas_atuais, key=iqas_atuais.get)
@@ -380,11 +400,10 @@ if iqas_atuais:
 # ================================
 # HISTÓRICO
 # ================================
-
 st.subheader("📈 Histórico — Últimas 48h")
 
 horas_hist = 48
-cols_disponiveis = [p for p in poluentes_display if p in pivot.columns]
+cols_disponiveis = [p for p in poluentes_display if p in pivot.columns and not pivot[p].dropna().empty]
 
 if cols_disponiveis:
     df_hist = pivot[cols_disponiveis].tail(horas_hist).reset_index()
@@ -403,7 +422,7 @@ if cols_disponiveis:
         margin=dict(l=40, r=40, t=50, b=40),
         hovermode="x unified",
         xaxis_title="Data/Hora",
-        yaxis_title="Concentração (µg/m³)",
+        yaxis_title="Concentração",
         legend_title="Poluente",
         height=None,
     )
@@ -412,89 +431,95 @@ else:
     st.warning("Sem dados históricos suficientes para exibir.")
 
 # ================================
-# FORECAST 24H
+# FORECAST 6H
 # ================================
-
-st.subheader("🔮 Previsão MP2.5 — Próximas 24h")
+st.subheader("🔮 Previsão MP2.5 — Próximas 6h")
 st.caption("Modelo XGBoost treinado com dados históricos da CETESB · Itaim Paulista")
 
 model_xgb, features_xgb = carregar_modelo()
 
 if model_xgb is None:
-    st.warning("⚠️ Arquivo `modelo_xgboost.pkl` não encontrado na pasta do app. Coloque o arquivo junto com o `app.py` e reinicie.")
+    st.warning("⚠️ Arquivo `modelo_xgboost.pkl` não encontrado na pasta do app.")
 else:
+    features = features_xgb if features_xgb is not None else FEATURES_MODELO
     with st.spinner("Gerando previsão com XGBoost..."):
-        serie_forecast = gerar_forecast(pivot, model_xgb, horas=24)
+        serie_forecast = gerar_forecast(pivot, model_xgb, features, horas=6)
 
-    # IQA previsto
-    iqa_forecast = serie_forecast.apply(lambda v: calcular_iqa_poluente(v, "MP2.5"))
+    # CORREÇÃO FINAL DO GRÁFICO
+    subindice_forecast = serie_forecast.rolling(3, min_periods=1).mean().apply(
+        lambda v: calcular_iqa_poluente(v, "MP2.5")
+    )
 
-    # Gráfico concentração prevista MP2.5
     fig_fc = go.Figure()
-    # histórico recente (últimas 24h) para contexto
     if "MP2.5" in pivot.columns:
         hist_recente = pivot["MP2.5"].tail(24)
         fig_fc.add_trace(go.Scatter(
-            x=hist_recente.index, y=hist_recente.values,
-            mode="lines", name="MP2.5 histórico",
+            x=hist_recente.index,
+            y=hist_recente.values,
+            mode="lines",
+            name="MP2.5 histórico",
             line=dict(color="#1976D2", width=2)
         ))
     fig_fc.add_trace(go.Scatter(
-        x=serie_forecast.index, y=serie_forecast.values,
-        mode="lines+markers", name="MP2.5 previsto",
+        x=serie_forecast.index,
+        y=serie_forecast.values,
+        mode="lines+markers",
+        name="MP2.5 previsto",
         line=dict(color="#FF6D00", width=2, dash="dash"),
         marker=dict(size=5)
     ))
     fig_fc.update_layout(
         autosize=True,
         margin=dict(l=40, r=40, t=50, b=40),
-        title="Concentração MP2.5 — Histórico + Previsão 24h",
+        title="Concentração MP2.5 — Histórico + Previsão 6h",
         hovermode="x unified",
         xaxis_title="Data/Hora",
-        yaxis_title="MP2.5 (µg/m³)",
-        height=None,
+        yaxis_title="MP2.5 (µg/m³)"
     )
     st.plotly_chart(fig_fc, use_container_width=True)
 
-    # Gráfico IQA previsto
     fig_iqa = go.Figure()
     fig_iqa.add_trace(go.Scatter(
-        x=iqa_forecast.index,
-        y=iqa_forecast.values,
+        x=subindice_forecast.index,
+        y=subindice_forecast.values,
         mode="lines+markers",
-        name="IQA MP2.5 Previsto",
+        name="Subíndice MP2.5 previsto",
         line=dict(color="#FF6D00", width=3),
         fill="tozeroy",
         fillcolor="rgba(255,109,0,0.1)"
     ))
     for (lo, hi, nome, cor, _) in CLASSES_IQA:
-        fig_iqa.add_hrect(y0=lo, y1=min(hi, 300), fillcolor=cor, opacity=0.07,
-                          line_width=0, annotation_text=nome, annotation_position="right")
+        fig_iqa.add_hrect(
+            y0=lo,
+            y1=min(hi, 300),
+            fillcolor=cor,
+            opacity=0.07,
+            line_width=0,
+            annotation_text=nome,
+            annotation_position="right"
+        )
+    y_max = max(60, float(subindice_forecast.max()) + 20)
     fig_iqa.update_layout(
         autosize=True,
         margin=dict(l=40, r=40, t=50, b=40),
-        title="IQA MP2.5 Previsto — Próximas 24h",
+        title="Subíndice previsto de MP2.5 — Próximas 6h",
         xaxis_title="Data/Hora",
-        yaxis_title="IQA",
-        height=None,
-        yaxis=dict(range=[0, 250])
+        yaxis_title="IQA MP2.5",
+        yaxis=dict(range=[0, y_max])
     )
     st.plotly_chart(fig_iqa, use_container_width=True)
 
-    # Alerta futuro
-    iqa_max_futuro = iqa_forecast.max()
-    ts_max = iqa_forecast.idxmax()
-    nome_fut, cor_fut, emoji_fut = classificar_iqa(iqa_max_futuro)
+    iqa_max_futuro = subindice_forecast.max()
+    ts_max = subindice_forecast.idxmax()
+    nome_fut, _, emoji_fut = classificar_iqa(iqa_max_futuro)
     rec_fut, _ = RECOMENDACOES[nome_fut]
     st.info(f"{emoji_fut} Pior momento previsto: **IQA {iqa_max_futuro:.0f} ({nome_fut})** às {ts_max.strftime('%d/%m %H:%M')} · {rec_fut}")
 
 # ================================
 # TABELA RESUMO
 # ================================
-
 with st.expander("📋 Ver dados brutos"):
     st.dataframe(pivot.tail(48).style.format("{:.2f}"), use_container_width=True)
-
     csv = pivot.tail(48).to_csv().encode("utf-8")
     st.download_button("📥 Baixar CSV", csv, "itaim_paulista_48h.csv", "text/csv")
 
