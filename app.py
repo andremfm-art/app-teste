@@ -26,9 +26,9 @@ html { font-size: 16px; -webkit-text-size-adjust: 100%; }
 body { overflow-x: hidden; }
 
 .block-container {
-    padding-top: 1.2rem !important;
-    padding-left: clamp(0.8rem, 2vw, 2rem) !important;
-    padding-right: clamp(0.8rem, 2vw, 2rem) !important;
+    padding-top: clamp(0.6rem, 1.2vw, 1.2rem) !important;
+    padding-left: clamp(0.5rem, 2vw, 2rem) !important;
+    padding-right: clamp(0.5rem, 2vw, 2rem) !important;
     padding-bottom: 0.4rem !important;
     max-width: 100% !important;
 }
@@ -83,6 +83,48 @@ h3 { font-size: clamp(0.82rem, 1.2vw, 1.05rem) !important; }
 .prog-wrap { flex: 1; height: 3px; background: rgba(0,0,0,0.08); border-radius: 2px; overflow: hidden; }
 .prog-fill { height: 3px; border-radius: 2px; background: #1976D2; transition: width 1.8s linear; }
 
+/* ── MOBILE ── */
+/* Problema 1 resolvido: barra de nav já é só [status + ⚙️] — 2 colunas, cabe em 390px */
+
+/* Problema 2: cards em mobile — 3 por linha até 480px, 2 abaixo disso */
+@media (max-width: 540px) {
+    .pol-card {
+        flex: 1 1 calc(50% - 5px) !important;
+        padding: 10px 12px !important;
+    }
+    .pol-card .pol-label { font-size: 0.72rem !important; white-space: normal !important; }
+    .pol-card .pol-iqa   { font-size: 1.35rem !important; }
+    .pol-card .pol-conc  { font-size: 0.68rem !important; }
+
+    /* Banner: empilha verticalmente em vez de linha */
+    .iqa-banner    { flex-direction: column; gap: 4px !important; padding: 10px 12px !important; }
+    .iqa-sep       { display: none; }
+    .iqa-valor     { font-size: 1.1rem !important; white-space: normal !important; }
+    .iqa-rec       { font-size: 0.76rem !important; }
+
+    /* Título menor em mobile */
+    h1 { font-size: 1.35rem !important; }
+
+    /* Caption menor */
+    .stCaptionContainer, [data-testid="stCaptionContainer"] {
+        font-size: 0.65rem !important;
+    }
+
+    /* Barra de nav: label mais curto */
+    .carousel-label { font-size: 0.68rem !important; }
+    .carousel-dot   { width: 6px !important; height: 6px !important; }
+}
+
+/* Telas muito estreitas (360px) */
+@media (max-width: 390px) {
+    .pol-card { flex: 1 1 calc(50% - 4px) !important; }
+    .block-container {
+        padding-left: 0.6rem !important;
+        padding-right: 0.6rem !important;
+    }
+}
+
+/* ── MONITORES GRANDES / TVs ── */
 @media (min-width: 1800px) {
     html { font-size: 18px; }
     .pol-card .pol-iqa   { font-size: 1.8rem !important; }
@@ -140,15 +182,17 @@ POLUENTES    = ["MP2.5","MP10","O3","NO2","CO","SO2"]
 
 # Nomes amigáveis para leigos — exibidos nos cards e no banner
 NOMES_POL = {
-    "MP2.5": "Part. finas (MP2.5)",
-    "MP10":  "Part. inaláveis (MP10)",
-    "O3":    "Ozônio (O3)",
-    "NO2":   "Dióxido de nitrogênio",
-    "CO":    "Monóxido de carbono",
-    "SO2":   "Dióxido de enxofre",
+    "MP2.5": "Part. finas",
+    "MP10":  "Part. inaláveis",
+    "O3":    "Ozônio",
+    "NO2":   "Dióx. nitrogênio",
+    "CO":    "Mon. carbono",
+    "SO2":   "Dióx. enxofre",
 }
-CHART_HEIGHT = 420
-PLOTLY_CONFIG = {"responsive":True,"displayModeBar":False}
+CHART_HEIGHT    = 420   # desktop/TV
+CHART_HEIGHT_SM = 280   # mobile — usado quando viewport < 540px (estimado)
+PLOTLY_CONFIG    = {"responsive":True,"displayModeBar":False}
+PLOTLY_CFG_SMALL = {"responsive":True,"displayModeBar":False}  # mesmo config, altura controlada por CHART_HEIGHT_SM
 
 # FIX: intervalo padrão 20s — razoável para TV e monitor.
 # O usuário pode ajustar no controle numérico da barra de navegação.
@@ -253,13 +297,15 @@ def render_header(coleta_ts):
     st.title("🌎 Respira Melhor — UBS Vila Curuçá")
     st.caption(f"Dados em tempo real · CETESB Itaim Paulista · Coletado em: {coleta_ts.strftime('%d/%m/%Y %H:%M')} · IQAr calculado conforme CONAMA 506/2024 (vigente desde 01/01/2026)")
 
-def render_nav(intervalo):
+def render_nav(intervalo):  # chamado como rodapé após o conteúdo de cada slide
     """
-    Barra de navegação: ← · dots + label + barra de progresso · → · [intervalo(s)]
-    FIX: sleep(2)+rerun incremental substitui o sleep(60) que travava o servidor.
+    Barra de status sempre visível: dots + label + barra de progresso + ⚙️
+    Controles (← → ⏸ intervalo) ficam ocultos por padrão e aparecem
+    quando o usuário clica no ícone ⚙️ — mantém visual limpo em TV e monitor.
     """
     slide   = st.session_state.slide
     auto    = st.session_state.auto
+    ctrl_vis = st.session_state.ctrl_vis
     elapsed = max(0.0, (datetime.now() - st.session_state.last_change).total_seconds())
     pct     = min(elapsed / intervalo * 100, 100) if auto else 0
     label, _ = SLIDES[slide]
@@ -269,18 +315,13 @@ def render_nav(intervalo):
         for i in range(N_SLIDES)
     )
 
-    c_prev, c_mid, c_next, c_pause, c_seg = st.columns([1, 10, 1, 1, 2])
+    # ── Linha principal: [status]  [⚙️] ──────────────────────────────────
+    c_status, c_gear = st.columns([11, 1])
 
-    if c_prev.button("←", key="btn_prev", width="stretch"):
-        st.session_state.slide = (slide - 1) % N_SLIDES
-        st.session_state.last_change = datetime.now()
-        st.rerun()
-
-    # Dots + label + barra de progresso numa linha só
-    c_mid.markdown(
-        f'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;">'
+    c_status.markdown(
+        f'<div style="display:flex;align-items:center;gap:10px;padding:5px 0;">' 
         f'<div class="carousel-dots">{dots}</div>'
-        f'<span class="carousel-label">{label} &nbsp;({slide+1}/{N_SLIDES})</span>'
+        f'<span class="carousel-label">{label}&nbsp;({slide+1}/{N_SLIDES})</span>'
         f'<div class="prog-wrap">'
         f'<div class="prog-fill" style="width:{pct:.1f}%"></div>'
         f'</div>'
@@ -288,66 +329,104 @@ def render_nav(intervalo):
         unsafe_allow_html=True,
     )
 
-    if c_next.button("→", key="btn_next", width="stretch"):
-        st.session_state.slide = (slide + 1) % N_SLIDES
-        st.session_state.last_change = datetime.now()
+    gear_lbl = "⚙️" if not ctrl_vis else "✕"
+    if c_gear.button(gear_lbl, key="btn_gear", width="stretch",
+                     help="Controles de navegação"):
+        st.session_state.ctrl_vis = not ctrl_vis
         st.rerun()
 
-    # Botão pause/play
-    lbl = "⏸" if auto else "▶"
-    if c_pause.button(lbl, key="btn_pause", width="stretch"):
-        st.session_state.auto = not auto
-        st.session_state.last_change = datetime.now()
-        st.rerun()
+    # ── Controles expandidos (só quando ctrl_vis=True) ────────────────────
+    if ctrl_vis:
+        c_prev, c_next, c_pause, c_seg = st.columns([1, 1, 1, 3])
 
-    # Intervalo configurável
-    novo = c_seg.number_input("s", min_value=5, max_value=120,
-                              value=intervalo, step=5,
-                              label_visibility="collapsed",
-                              key="input_intervalo")
-    if novo != intervalo:
-        st.session_state.intervalo = novo
+        if c_prev.button("← Anterior", key="btn_prev", width="stretch"):
+            st.session_state.slide = (slide - 1) % N_SLIDES
+            st.session_state.last_change = datetime.now()
+            st.rerun()
+
+        if c_next.button("Próximo →", key="btn_next", width="stretch"):
+            st.session_state.slide = (slide + 1) % N_SLIDES
+            st.session_state.last_change = datetime.now()
+            st.rerun()
+
+        lbl_pause = "⏸ Pausar" if auto else "▶ Retomar"
+        if c_pause.button(lbl_pause, key="btn_pause", width="stretch"):
+            st.session_state.auto = not auto
+            st.session_state.last_change = datetime.now()
+            st.rerun()
+
+        novo = c_seg.number_input(
+            "Intervalo entre telas (segundos)",
+            min_value=5, max_value=120,
+            value=intervalo, step=5,
+            key="input_intervalo"
+        )
+        if novo != intervalo:
+            st.session_state.intervalo = novo
 
     return elapsed
 
+
 def render_situacao(pivot):
-    cards,iqas=[],{}
+    """Tela 1: apenas cards (banner já está no header fixo)."""
+    render_cards(pivot)
+
+def calcular_iqas_atuais(pivot):
+    """Calcula IQAs sem renderizar — usado pelo header e tela 1."""
+    iqas, valores = {}, {}
     for pol in POLUENTES:
         if pol in pivot.columns:
-            serie=pivot[pol].dropna()
-            valor=serie.iloc[-1] if not serie.empty else None
+            serie = pivot[pol].dropna()
+            valor = serie.iloc[-1] if not serie.empty else None
             if valor is not None:
-                iqa=calcular_iqa_poluente(valor,pol)
-                nome,cor,emoji=classificar_iqa(iqa); iqas[pol]=iqa
-                un="ppm" if pol=="CO" else "µg/m³"
-                cards.append(f'<div class="pol-card">'
-                              f'<div class="pol-label">{emoji} {NOMES_POL.get(pol, pol)}</div>'
-                              f'<div class="pol-iqa" style="color:{cor}">{iqa:.0f}</div>'
-                              f'<div class="pol-conc">{valor:.1f} {un} · {nome}</div></div>')
-            else:
-                cards.append(f'<div class="pol-card"><div class="pol-label">⚪ {pol}</div>'
-                             f'<div class="pol-iqa" style="color:#aaa">—</div>'
-                             f'<div class="pol-conc">Sem dado recente</div></div>')
+                iqas[pol]   = calcular_iqa_poluente(valor, pol)
+                valores[pol] = valor
+    return iqas, valores
+
+def render_banner_iqa(pivot):
+    """Banner fixo no header — fora dos slides para não vazar entre reruns."""
+    iqas, _ = calcular_iqas_atuais(pivot)
+    if not iqas:
+        return
+    ig  = max(iqas.values())
+    pc  = max(iqas, key=iqas.get)
+    nc, cc, ec = classificar_iqa(ig)
+    rt, re = RECOMENDACOES[nc]
+    st.markdown(
+        f'<div class="iqa-banner" style="background:{cc}18;border-left:5px solid {cc};">' +
+        f'<div class="iqa-valor" style="color:{cc}">{ec}&nbsp;IQAr: {ig:.0f} — {nc}</div>' +
+        f'<div class="iqa-sep"></div>' +
+        f'<div class="iqa-rec">Poluente: <b>{NOMES_POL.get(pc, pc)}</b><br>{re} {rt}</div>' +
+        f'</div>',
+        unsafe_allow_html=True)
+    if nc == "Moderada":
+        st.warning(f"⚠️ Atenção: Qualidade do ar {nc.upper()} em Itaim Paulista. {rt}")
+    elif nc in ["Ruim", "Muito Ruim", "Péssima"]:
+        st.error(f"🚨 ALERTA: Qualidade do ar {nc.upper()} em Itaim Paulista. {rt}")
+
+def render_cards(pivot):
+    """Cards de poluentes — renderizados apenas na tela 1."""
+    iqas, valores = calcular_iqas_atuais(pivot)
+    cards = []
+    for pol in POLUENTES:
+        if pol in iqas:
+            iqa  = iqas[pol]
+            v    = valores[pol]
+            nome, cor, emoji = classificar_iqa(iqa)
+            un   = "ppm" if pol == "CO" else "µg/m³"
+            cards.append(
+                f'<div class="pol-card">' +
+                f'<div class="pol-label">{emoji} {NOMES_POL.get(pol, pol)}</div>' +
+                f'<div class="pol-iqa" style="color:{cor}">{iqa:.0f}</div>' +
+                f'<div class="pol-conc">{v:.1f} {un} · {nome}</div></div>')
         else:
-            cards.append(f'<div class="pol-card"><div class="pol-label">⚪ {pol}</div>'
-                         f'<div class="pol-iqa" style="color:#aaa">—</div>'
-                         f'<div class="pol-conc">Não monitorado</div></div>')
+            cards.append(
+                f'<div class="pol-card">' +
+                f'<div class="pol-label">⚪ {NOMES_POL.get(pol, pol)}</div>' +
+                f'<div class="pol-iqa" style="color:#aaa">—</div>' +
+                f'<div class="pol-conc">Não monitorado</div></div>')
+    st.markdown(f'<div class="pol-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
 
-    st.markdown(f'<div class="pol-grid">{"".join(cards)}</div>',unsafe_allow_html=True)
-
-    if iqas:
-        ig=max(iqas.values()); pc=max(iqas,key=iqas.get)
-        nc,cc,ec=classificar_iqa(ig); rt,re=RECOMENDACOES[nc]
-        st.markdown(
-            f'<div class="iqa-banner" style="background:{cc}18;border-left:5px solid {cc};">'
-            f'<div class="iqa-valor" style="color:{cc}">{ec}&nbsp;Índice de Qualidade do Ar: {ig:.0f} — {nc}</div>'
-            f'<div class="iqa-sep"></div>'
-            f'<div class="iqa-rec">Principal poluente: <b>{NOMES_POL.get(pc, pc)}</b><br>{re} {rt}</div>'
-            f'</div>',unsafe_allow_html=True)
-        if nc == "Moderada":
-            st.warning(f"⚠️ Atenção: Qualidade do ar {nc.upper()} em Itaim Paulista. {rt}")
-        elif nc in ["Ruim","Muito Ruim","Péssima"]:
-            st.error(f"🚨 ALERTA: Qualidade do ar {nc.upper()} em Itaim Paulista. {rt}")
 
 def render_historico(pivot):
     # width="stretch" — API atual do Streamlit
@@ -358,8 +437,9 @@ def render_historico(pivot):
         fig=px.line(dl,x="datahora",y="Concentração",color="Poluente",
                     markers=False,title="Evolução dos poluentes nas últimas 48 horas")
         fig.update_layout(autosize=True,height=CHART_HEIGHT,
-                          margin=dict(l=40,r=40,t=50,b=40),hovermode="x unified",
-                          xaxis_title="Data/Hora",yaxis_title="Concentração",legend_title="Poluente")
+                          margin=dict(l=32,r=16,t=44,b=32),hovermode="x unified",
+                          xaxis_title="Data/Hora",yaxis_title="Concentração",
+                          legend=dict(orientation="h",yanchor="bottom",y=1.01,xanchor="right",x=1))
         st.plotly_chart(fig,width="stretch",config=PLOTLY_CONFIG)
     else:
         st.warning("Sem dados históricos suficientes para exibir.")
@@ -623,6 +703,7 @@ if "slide"       not in st.session_state: st.session_state.slide       = 0
 if "auto"        not in st.session_state: st.session_state.auto        = True
 if "intervalo"   not in st.session_state: st.session_state.intervalo   = INTERVALO_PADRAO
 if "last_change" not in st.session_state: st.session_state.last_change = datetime.now()
+if "ctrl_vis"    not in st.session_state: st.session_state.ctrl_vis    = False
 
 # ================================
 # DADOS  (cache TTL=600 — reruns não recoletam)
@@ -658,23 +739,27 @@ if model_xgb is not None:
 # LAYOUT
 # ================================
 render_header(coleta_ts)
-elapsed = render_nav(st.session_state.intervalo)
+
+# Banner IQA fixo logo abaixo do título — sempre visível em todas as telas.
+render_banner_iqa(pivot)
 
 slide_key = SLIDES[st.session_state.slide][1]
 
-# st.empty() garante que só a área do gráfico é substituída no rerun —
-# o cabeçalho e a barra de navegação não piscam.
-slide_container = st.empty()
-with slide_container.container():
-    if slide_key == "situacao":
-        render_situacao(pivot)
-        render_historico(pivot)
-    elif slide_key == "previsao":
-        render_previsao(pivot, serie_forecast_cache)
-    elif slide_key == "subindice":
-        render_subindice(pivot, serie_forecast_cache, csv_bytes)
-    elif slide_key == "info":
-        render_info()
+# Conteúdo do slide atual
+if slide_key == "situacao":
+    render_situacao(pivot)
+    render_historico(pivot)
+elif slide_key == "previsao":
+    render_previsao(pivot, serie_forecast_cache)
+elif slide_key == "subindice":
+    render_subindice(pivot, serie_forecast_cache, csv_bytes)
+elif slide_key == "info":
+    render_info()
+
+# Barra de navegação no RODAPÉ — após o conteúdo de cada slide.
+# O usuário vê primeiro as informações, depois a navegação discreta embaixo.
+st.divider()
+elapsed = render_nav(st.session_state.intervalo)
 
 # ================================
 # AUTO-AVANÇO
@@ -696,4 +781,3 @@ if st.session_state.auto:
 if erros_coleta:
     with st.expander(f"⚠️ {len(erros_coleta)} poluente(s) com falha na coleta — clique para ver"):
         for e in erros_coleta: st.warning(e)
-
