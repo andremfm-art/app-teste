@@ -1,29 +1,28 @@
 ﻿# ============================================================
 # Respira Melhor — UBS Vila Curuçá
-# requirements.txt — versões exatas do ambiente (28/04/2026)
+# requirements.txt
 #
-# Gerado via: pip freeze  (apenas dependências diretas do app)
-# As demais dependências (altair, tornado, etc.) são instaladas
-# automaticamente pelo Streamlit como dependências transitivas.
+# Instalação:
+#   pip install -r requirements.txt
 # ============================================================
 
-# Interface e servidor
+# Interface web
 streamlit==1.56.0
 
 # Dados e cálculo
 pandas==3.0.2
 numpy==2.4.4
 
-# Gráficos
-plotly==6.7.0
-
 # Requisições HTTP (coleta CETESB)
 requests==2.33.1
 
-# Modelo de previsão
+# Modelo de previsão XGBoost
 xgboost==3.2.0
 joblib==1.5.3
-
-# scikit-learn: necessário para compatibilidade com joblib/xgboost
-# versão exata não listada no freeze — usar mínimo seguro
 scikit-learn>=1.3.0
+
+# QR Code
+qrcode[pil]>=7.4.2
+
+# ── Bibliotecas padrão Python (não precisam de pip) ──────────
+# base64, datetime, io, json, pathlib, time, warnings
