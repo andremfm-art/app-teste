@@ -2,782 +2,665 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
 from datetime import datetime, timedelta
-from pathlib import Path
-import joblib
-import time
+import json
 import warnings
-
+import qrcode
+import base64
+from io import BytesIO
+import joblib
+from pathlib import Path
+import time
 warnings.filterwarnings("ignore")
 
 # ================================
 # CONFIG
 # ================================
-st.set_page_config(page_title="Respira Melhor - UBS Vila Curuça", layout="wide")
+st.set_page_config(page_title="Respira Melhor - UBS Vila Curuçá", layout="wide")
 
-# ================================
-# CSS
-# ================================
 st.markdown("""
 <style>
-html { font-size: 16px; -webkit-text-size-adjust: 100%; }
-body { overflow-x: hidden; }
-
-.block-container {
-    padding-top: clamp(0.6rem, 1.2vw, 1.2rem) !important;
-    padding-left: clamp(0.5rem, 2vw, 2rem) !important;
-    padding-right: clamp(0.5rem, 2vw, 2rem) !important;
-    padding-bottom: 0.4rem !important;
-    max-width: 100% !important;
-}
-
-h1 { margin-bottom: 0.25rem !important; }
-h2 { font-size: clamp(0.9rem, 1.5vw, 1.3rem) !important; margin-bottom: 0.15rem !important; }
-h3 { font-size: clamp(0.82rem, 1.2vw, 1.05rem) !important; }
-.stPlotlyChart { width: 100% !important; }
-
-/* CARDS */
-.pol-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: clamp(5px, 0.7vw, 9px);
-    margin: 8px 0 10px 0;
-}
-.pol-card {
-    flex: 1 1 calc(16.66% - 9px);
-    min-width: 105px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(0,0,0,0.08);
-    border-radius: 9px;
-    padding: clamp(8px, 0.9vw, 13px) clamp(10px, 1vw, 14px);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    box-sizing: border-box;
-}
-.pol-card .pol-label { font-size: clamp(0.62rem, 0.8vw, 0.76rem); color: #666; margin-bottom: 2px; white-space: nowrap; }
-.pol-card .pol-iqa   { font-size: clamp(1rem, 1.7vw, 1.55rem); font-weight: 700; line-height: 1.1; }
-.pol-card .pol-conc  { font-size: clamp(0.58rem, 0.75vw, 0.7rem); color: #888; margin-top: 3px; }
-@media (max-width: 900px) { .pol-card { flex: 1 1 calc(33.33% - 7px); } }
-@media (max-width: 540px) { .pol-card { flex: 1 1 calc(50% - 5px); } }
-
-/* BANNER IQA */
-.iqa-banner {
-    border-radius: 9px;
-    margin: 0 0 10px 0;
-    padding: clamp(10px, 1vw, 14px) clamp(12px, 1.4vw, 18px);
-    display: flex; align-items: center;
-    gap: clamp(8px, 1vw, 14px); flex-wrap: wrap;
-}
-.iqa-valor { font-size: clamp(0.95rem, 1.9vw, 1.7rem); font-weight: 700; line-height: 1.1; white-space: nowrap; }
-.iqa-sep   { width: 1px; height: 30px; background: rgba(0,0,0,0.15); flex-shrink: 0; }
-.iqa-rec   { font-size: clamp(0.66rem, 0.95vw, 0.84rem); color: #444; line-height: 1.3; }
-
-/* NAVEGAÇÃO DO CARROSSEL */
-.carousel-dots { display: flex; gap: 6px; align-items: center; }
-.carousel-dot  { width: 8px; height: 8px; border-radius: 50%; background: rgba(0,0,0,0.15); display: inline-block; }
-.carousel-dot.active { background: #1976D2; }
-.carousel-label { font-size: 0.75rem; color: #777; }
-
-/* BARRA DE PROGRESSO */
-.prog-wrap { flex: 1; height: 3px; background: rgba(0,0,0,0.08); border-radius: 2px; overflow: hidden; }
-.prog-fill { height: 3px; border-radius: 2px; background: #1976D2; transition: width 1.8s linear; }
-
-/* ── MOBILE ── */
-/* Problema 1 resolvido: barra de nav já é só [status + ⚙️] — 2 colunas, cabe em 390px */
-
-/* Problema 2: cards em mobile — 3 por linha até 480px, 2 abaixo disso */
-@media (max-width: 540px) {
-    .pol-card {
-        flex: 1 1 calc(50% - 5px) !important;
-        padding: 10px 12px !important;
-    }
-    .pol-card .pol-label { font-size: 0.72rem !important; white-space: normal !important; }
-    .pol-card .pol-iqa   { font-size: 1.35rem !important; }
-    .pol-card .pol-conc  { font-size: 0.68rem !important; }
-
-    /* Banner: empilha verticalmente em vez de linha */
-    .iqa-banner    { flex-direction: column; gap: 4px !important; padding: 10px 12px !important; }
-    .iqa-sep       { display: none; }
-    .iqa-valor     { font-size: 1.1rem !important; white-space: normal !important; }
-    .iqa-rec       { font-size: 0.76rem !important; }
-
-    /* Título menor em mobile */
-    h1 { font-size: 1.35rem !important; }
-
-    /* Caption menor */
-    .stCaptionContainer, [data-testid="stCaptionContainer"] {
-        font-size: 0.65rem !important;
-    }
-
-    /* Barra de nav: label mais curto */
-    .carousel-label { font-size: 0.68rem !important; }
-    .carousel-dot   { width: 6px !important; height: 6px !important; }
-}
-
-/* Telas muito estreitas (360px) */
-@media (max-width: 390px) {
-    .pol-card { flex: 1 1 calc(50% - 4px) !important; }
-    .block-container {
-        padding-left: 0.6rem !important;
-        padding-right: 0.6rem !important;
-    }
-}
-
-/* ── MONITORES GRANDES / TVs ── */
-@media (min-width: 1800px) {
-    html { font-size: 18px; }
-    .pol-card .pol-iqa   { font-size: 1.8rem !important; }
-    .pol-card .pol-label { font-size: 0.8rem !important; }
-    .iqa-valor { font-size: 2rem !important; }
-}
-@media (min-width: 2400px) {
-    .block-container { max-width: 2400px !important; margin: 0 auto !important; }
-}
+#MainMenu, footer, header, [data-testid="stDecoration"],
+[data-testid="stToolbar"], [data-testid="stStatusWidget"],
+[data-testid="stHeader"], .stDeployButton { display: none !important; }
+.block-container { padding: 0 !important; margin: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ================================
 # CONSTANTES
 # ================================
-BASE_URL     = "https://arcgis.cetesb.sp.gov.br/server/rest/services/QUALAR_views/Qualidade_Ar_QUALAR/MapServer"
+BASE_URL = "https://arcgis.cetesb.sp.gov.br/server/rest/services/QUALAR_views/Qualidade_Ar_QUALAR/MapServer"
 ESTACAO_ALVO = "Itaim Paulista"
+LAYERS = {0: "CO", 1: "MP10", 2: "MP2.5", 3: "NO2", 4: "O3", 5: "SO2"}
 
-LAYERS = {0:"CO", 1:"MP10", 2:"MP2.5", 3:"NO2", 4:"O3", 5:"SO2"}
-
-# ── LIMITES IQAr — CONAMA 506/2024 vigente desde 01/01/2026 ──────────────
-# Fonte: Guia Técnico MMA/CETESB jan/2025
-# MP2.5: limite "Boa" caiu de 45 → 15 µg/m³ (muito mais restritivo)
 LIMITES_IQA = {
-    "MP2.5": [(0,0,15,40),(15,40,50,80),(50,80,75,120),(75,120,125,200),(125,200,300,400)],
-    "MP10":  [(0,0,45,40),(45,40,100,80),(100,80,150,120),(150,120,250,200),(250,200,600,400)],
-    "O3":    [(0,0,100,40),(100,40,130,80),(130,80,160,120),(160,120,200,200),(200,200,800,400)],
-    "NO2":   [(0,0,200,40),(200,40,240,80),(240,80,320,120),(320,120,1130,200),(1130,200,3750,400)],
-    "CO":    [(0,0,9,40),(9,40,11,80),(11,80,13,120),(13,120,15,200),(15,200,50,400)],
-    "SO2":   [(0,0,40,40),(40,40,50,80),(50,80,125,120),(125,120,800,200),(800,200,2620,400)],
+    "MP2.5": [(0,0,15,40), (15,40,50,80), (50,80,75,120), (75,120,125,200), (125,200,300,400)],
+    "MP10": [(0,0,45,40), (45,40,100,80), (100,80,150,120), (150,120,250,200), (250,200,600,400)],
+    "O3": [(0,0,100,40), (100,40,130,80), (130,80,160,120), (160,120,200,200), (200,200,800,400)],
+    "NO2": [(0,0,200,40), (200,40,240,80), (240,80,320,120), (320,120,1130,200), (1130,200,3750,400)],
+    "CO": [(0,0,9,40), (9,40,11,80), (11,80,13,120), (13,120,15,200), (15,200,50,400)],
+    "SO2": [(0,0,40,40), (40,40,50,80), (50,80,125,120), (125,120,800,200), (800,200,2620,400)],
 }
 CLASSES_IQA = [
-    (0,40,"Boa","#00C853","🟢"),(41,80,"Moderada","#FFD600","🟡"),
-    (81,120,"Ruim","#FF6D00","🟠"),(121,200,"Muito Ruim","#D50000","🔴"),
-    (201,999,"Péssima","#6A1B9A","⚫"),
+    (0, 40, "Boa", "#27AE60", "#E8F8EF"),
+    (41, 80, "Moderada", "#F39C12", "#FEF9E7"),
+    (81, 120, "Ruim", "#E67E22", "#FEF0E7"),
+    (121, 200, "Muito Ruim", "#E74C3C", "#FDEDEC"),
+    (201, 999, "Péssima", "#8E44AD", "#F5EEF8"),
 ]
-# Textos oficiais do Guia Técnico MMA/CETESB 2025 (CONAMA 506/2024)
+# Recomendações baseadas em OMS, EPA e CETESB
+# Efeitos à saúde por faixa — base científica, não normativa
 RECOMENDACOES = {
-    "Boa":        ("Nenhum efeito esperado à saúde. Aproveite o ar livre!", "✅"),
-    "Moderada":   ("Crianças, idosos e pessoas com doenças respiratórias ou cardíacas podem sentir tosse seca e cansaço. A população em geral não é afetada.", "⚠️"),
-    "Ruim":       ("Toda a população pode sentir tosse seca, cansaço e ardor nos olhos, nariz e garganta. Grupos sensíveis podem ter efeitos mais sérios — evite atividades ao ar livre.", "🚨"),
-    "Muito Ruim": ("Toda a população pode ter agravamento dos sintomas: tosse, cansaço, ardor, falta de ar e respiração ofegante. Grupos sensíveis: não saia de casa.", "🔴"),
-    "Péssima":    ("ALERTA CRÍTICO: Toda a população corre risco de doenças respiratórias e cardiovasculares graves. Permaneça em ambientes fechados e procure atendimento médico.", "☣️"),
+    "Boa":        "Sem restrições. Atividades ao ar livre liberadas para todos.",
+    "Moderada":   "Grupos sensíveis devem reduzir esforço físico intenso ao ar livre.",
+    "Ruim":       "Grupos sensíveis: evitar atividades ao ar livre. População geral: reduzir esforços.",
+    "Muito Ruim": "Evitar exposição ao ar livre. Permanecer em ambientes fechados.",
+    "Péssima":    "Evitar sair de casa. Suspender atividades externas. Procurar atendimento se necessário.",
 }
-FEATURES_MODELO = [
-    "MP25","MP10","O3","NO2","hora_sin","hora_cos","dia_semana",
-    "lag_1h","lag_2h","lag_3h","lag_6h","lag_12h","lag_24h",
-    "mp10_lag_1h","mp10_lag_3h","mp10_lag_24h",
-    "o3_lag_1h","o3_lag_3h","o3_lag_24h",
-    "no2_lag_1h","no2_lag_3h","no2_lag_24h",
-    "media_3h","media_6h","diff_1h",
-]
-RENAME_PARA_MODELO = {"MP2.5":"MP25"}
-POLUENTES    = ["MP2.5","MP10","O3","NO2","CO","SO2"]
-
-# Nomes amigáveis para leigos — exibidos nos cards e no banner
 NOMES_POL = {
-    "MP2.5": "Part. finas",
-    "MP10":  "Part. inaláveis",
-    "O3":    "Ozônio",
-    "NO2":   "Dióx. nitrogênio",
-    "CO":    "Mon. carbono",
-    "SO2":   "Dióx. enxofre",
+    "MP2.5": "Partículas Finas", "MP10": "Partículas Inaláveis",
+    "O3": "Ozônio", "NO2": "Dióxido de Nitrogênio",
+    "CO": "Monóxido de Carbono", "SO2": "Dióxido de Enxofre",
 }
-CHART_HEIGHT    = 420   # desktop/TV
-CHART_HEIGHT_SM = 280   # mobile — usado quando viewport < 540px (estimado)
-PLOTLY_CONFIG    = {"responsive":True,"displayModeBar":False}
-PLOTLY_CFG_SMALL = {"responsive":True,"displayModeBar":False}  # mesmo config, altura controlada por CHART_HEIGHT_SM
+POLUENTES = ["MP2.5", "MP10", "O3", "NO2", "CO", "SO2"]
+SLIDE_NAMES = ["📊 Visão Geral", "🔮 Previsão (MP2.5)", "📋 Qualidade do Ar", "ℹ️ Sobre"]
+INTERVALO_SEGUNDOS = 20
+APP_URL = "https://respiramelhor.streamlit.app"
 
-# FIX: intervalo padrão 20s — razoável para TV e monitor.
-# O usuário pode ajustar no controle numérico da barra de navegação.
-INTERVALO_PADRAO = 20
-
-SLIDES = [
-    ("📊 Qualidade do ar agora + histórico", "situacao"),
-    ("🔮 Previsão de partículas finas",       "previsao"),
-    ("📉 Índice de qualidade previsto",        "subindice"),
-    ("ℹ️ Entenda o índice de qualidade",       "info"),
+FEATURES_MODELO = [
+    "MP25", "MP10", "O3", "NO2", "hora_sin", "hora_cos", "dia_semana",
+    "lag_1h", "lag_2h", "lag_3h", "lag_6h", "lag_12h", "lag_24h",
+    "mp10_lag_1h", "mp10_lag_3h", "mp10_lag_24h",
+    "o3_lag_1h", "o3_lag_3h", "o3_lag_24h",
+    "no2_lag_1h", "no2_lag_3h", "no2_lag_24h",
+    "media_3h", "media_6h", "diff_1h",
 ]
-N_SLIDES = len(SLIDES)
+RENAME_PARA_MODELO = {"MP2.5": "MP25"}
 
 # ================================
 # FUNÇÕES
 # ================================
-def calcular_iqa_poluente(valor, poluente):
+def calcular_iqa(valor, poluente):
     if valor is None or pd.isna(valor) or valor < 0:
         return None
-    for cl,il,ch,ih in LIMITES_IQA.get(poluente,[]):
+    for cl, il, ch, ih in LIMITES_IQA.get(poluente, []):
         if cl <= valor <= ch:
-            return float(il) if ch==cl else ((ih-il)/(ch-cl))*(valor-cl)+il
-    return 400.0 if valor > 0 else 0.0
+            if ch == cl:
+                return float(il)
+            return ((ih - il) / (ch - cl)) * (valor - cl) + il
+    return 400.0
 
-def classificar_iqa(iqa):
-    for lo,hi,nome,cor,emoji in CLASSES_IQA:
-        if lo <= iqa <= hi: return nome,cor,emoji
-    return "Péssima","#6A1B9A","⚫"
+def classificar(iqa):
+    for lo, hi, nome, cor, bg in CLASSES_IQA:
+        if lo <= iqa <= hi:
+            return nome, cor, bg
+    return "Péssima", "#8E44AD", "#F5EEF8"
+
+def gerar_qr_base64(url: str) -> str:
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=6, border=2)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#1a1a2e", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
 
 @st.cache_data(ttl=600)
 def coletar_dados():
-    dados,erros=[],[]
-    for layer,pol in LAYERS.items():
+    dados = []
+    for layer, pol in LAYERS.items():
         try:
-            r=requests.get(f"{BASE_URL}/{layer}/query",
-                           params={"where":"1=1","outFields":"*","f":"json"},timeout=8)
+            r = requests.get(f"{BASE_URL}/{layer}/query",
+                           params={"where": "1=1", "outFields": "*", "f": "json"},
+                           timeout=10)
             r.raise_for_status()
-            for f in r.json().get("features",[]):
-                if ESTACAO_ALVO.lower() not in f["attributes"].get("STATNM","").lower(): continue
-                for i in range(1,49):
-                    v,t=f["attributes"].get(f"M{i}"),f["attributes"].get(f"TM{i}")
+            for f in r.json().get("features", []):
+                if ESTACAO_ALVO.lower() not in f["attributes"].get("STATNM", "").lower():
+                    continue
+                for i in range(1, 49):
+                    v = f["attributes"].get(f"M{i}")
+                    t = f["attributes"].get(f"TM{i}")
                     if v is not None and t is not None:
-                        dados.append({"poluente":pol,"valor":float(v),
-                                      "datahora":pd.to_datetime(t,unit="ms")})
-        except Exception as e: erros.append(f"{pol}: {e}")
-    df=pd.DataFrame(dados).sort_values("datahora").reset_index(drop=True) if dados else pd.DataFrame()
-    return df,erros
+                        dados.append({"poluente": pol, "valor": float(v),
+                                      "datahora": pd.to_datetime(t, unit="ms")})
+        except Exception as e:
+            st.warning(f"Erro em {pol}: {e}")
+    return pd.DataFrame(dados) if dados else pd.DataFrame()
 
 def preparar_pivot(df):
-    p=df.pivot_table(index="datahora",columns="poluente",values="valor",aggfunc="mean")
-    return p.resample("1h").mean().ffill().bfill()
+    if df.empty:
+        return pd.DataFrame()
+    p = df.pivot_table(index="datahora", columns="poluente", values="valor", aggfunc="mean")
+    p.columns.name = None
+    return p.resample("1h").mean().ffill()
 
 @st.cache_resource
 def carregar_modelo():
-    base=Path(__file__).parent
-    mp,fp=base/"modelo_xgboost.pkl",base/"features.pkl"
-    if not mp.exists(): return None,None
+    base = Path(__file__).parent
+    mp = base / "modelo_xgboost.pkl"
+    fp = base / "features.pkl"
+    if not mp.exists():
+        return None, None
     try:
-        m=joblib.load(mp)
-        f=joblib.load(fp) if fp.exists() else FEATURES_MODELO
-        return m,f
-    except Exception as e:
-        st.warning(f"Erro ao carregar modelo: {e}"); return None,None
+        return joblib.load(mp), joblib.load(fp) if fp.exists() else FEATURES_MODELO
+    except:
+        return None, None
 
-def preparar_features_forecast(hm,hmp10,ho3,hno2,ts,features):
-    def sg(s,lag): return float(s.iloc[-lag]) if len(s)>=lag else (float(s.iloc[-1]) if len(s)>0 else 0.0)
-    ang=2*np.pi*ts.hour/24; v=hm.values; u=float(v[-1]) if len(v)>0 else 0.0
-    row={"MP25":u,"MP10":sg(hmp10,24),"O3":sg(ho3,24),"NO2":sg(hno2,24),
-         "hora_sin":np.sin(ang),"hora_cos":np.cos(ang),"dia_semana":ts.dayofweek,
-         "lag_1h":sg(hm,1),"lag_2h":sg(hm,2),"lag_3h":sg(hm,3),
-         "lag_6h":sg(hm,6),"lag_12h":sg(hm,12),"lag_24h":sg(hm,24),
-         "mp10_lag_1h":sg(hmp10,1),"mp10_lag_3h":sg(hmp10,3),"mp10_lag_24h":sg(hmp10,24),
-         "o3_lag_1h":sg(ho3,1),"o3_lag_3h":sg(ho3,3),"o3_lag_24h":sg(ho3,24),
-         "no2_lag_1h":sg(hno2,1),"no2_lag_3h":sg(hno2,3),"no2_lag_24h":sg(hno2,24),
-         "media_3h":float(np.mean(v[-3:])) if len(v)>=3 else u,
-         "media_6h":float(np.mean(v[-6:])) if len(v)>=6 else u,
-         "diff_1h":float(v[-1]-v[-2]) if len(v)>=2 else 0.0}
-    return pd.DataFrame([row]).reindex(columns=features,fill_value=0.0).values
+def preparar_features(hm, hmp10, ho3, hno2, ts, features):
+    def sg(s, lag):
+        return float(s.iloc[-lag]) if len(s) >= lag else (float(s.iloc[-1]) if len(s) > 0 else 0.0)
+    ang = 2 * np.pi * ts.hour / 24
+    v = hm.values
+    u = float(v[-1]) if len(v) > 0 else 0.0
+    row = {
+        "MP25": u, "MP10": sg(hmp10, 24), "O3": sg(ho3, 24), "NO2": sg(hno2, 24),
+        "hora_sin": np.sin(ang), "hora_cos": np.cos(ang), "dia_semana": ts.dayofweek,
+        "lag_1h": sg(hm, 1), "lag_2h": sg(hm, 2), "lag_3h": sg(hm, 3),
+        "lag_6h": sg(hm, 6), "lag_12h": sg(hm, 12), "lag_24h": sg(hm, 24),
+        "mp10_lag_1h": sg(hmp10, 1), "mp10_lag_3h": sg(hmp10, 3), "mp10_lag_24h": sg(hmp10, 24),
+        "o3_lag_1h": sg(ho3, 1), "o3_lag_3h": sg(ho3, 3), "o3_lag_24h": sg(ho3, 24),
+        "no2_lag_1h": sg(hno2, 1), "no2_lag_3h": sg(hno2, 3), "no2_lag_24h": sg(hno2, 24),
+        "media_3h": float(np.mean(v[-3:])) if len(v) >= 3 else u,
+        "media_6h": float(np.mean(v[-6:])) if len(v) >= 6 else u,
+        "diff_1h": float(v[-1] - v[-2]) if len(v) >= 2 else 0.0
+    }
+    return pd.DataFrame([row]).reindex(columns=features, fill_value=0.0).values
 
-def gerar_forecast(pivot,model,features,horas=6):
-    h=pivot.rename(columns=RENAME_PARA_MODELO).copy().ffill().bfill()
-    for p in ["MP25","MP10","O3","NO2"]:
-        if p not in h.columns: h[p]=0.0
-    mp25,mp10,o3,no2=h["MP25"].copy(),h["MP10"].copy(),h["O3"].copy(),h["NO2"].copy()
-    preds,ts=[],[]
-    for _ in range(horas):
-        prx=mp25.index[-1]+timedelta(hours=1)
-        X=preparar_features_forecast(mp25,mp10,o3,no2,prx,features)
-        pred=float(max(model.predict(X)[0],0.0))
-        _nxt = lambda s: float(s.iloc[-24]) if len(s)>=24 else float(s.iloc[-1])
-        mp25=pd.concat([mp25,pd.Series([pred],    index=[prx])])
-        mp10=pd.concat([mp10,pd.Series([_nxt(mp10)],index=[prx])])
-        o3  =pd.concat([o3,  pd.Series([_nxt(o3)],  index=[prx])])
-        no2 =pd.concat([no2, pd.Series([_nxt(no2)],  index=[prx])])
-        preds.append(pred); ts.append(prx)
-    return pd.Series(preds,index=ts,name="MP2.5")
+def gerar_forecast(pivot, model, features, horas=6):
+    """Gera previsão XGBoost — retorna listas vazias em caso de erro."""
+    try:
+        h = pivot.rename(columns=RENAME_PARA_MODELO).copy().ffill().bfill()
+        for p in ["MP25", "MP10", "O3", "NO2"]:
+            if p not in h.columns:
+                h[p] = 0.0
+        mp25, mp10, o3, no2 = h["MP25"].copy(), h["MP10"].copy(), h["O3"].copy(), h["NO2"].copy()
+        if len(mp25) == 0:
+            return [], [], []
+        labels, concs, iqas = [], [], []
+        for _ in range(horas):
+            prx = mp25.index[-1] + timedelta(hours=1)
+            X = preparar_features(mp25, mp10, o3, no2, prx, features)
+            pred = float(max(model.predict(X)[0], 0.0))
+            _n = lambda s: float(s.iloc[-24]) if len(s) >= 24 else float(s.iloc[-1])
+            mp25 = pd.concat([mp25, pd.Series([pred], index=[prx])])
+            mp10 = pd.concat([mp10, pd.Series([_n(mp10)], index=[prx])])
+            o3 = pd.concat([o3, pd.Series([_n(o3)], index=[prx])])
+            no2 = pd.concat([no2, pd.Series([_n(no2)], index=[prx])])
+            labels.append(prx.strftime("%Hh"))
+            concs.append(round(pred, 1))
+            iqa_v = calcular_iqa(pred, "MP2.5")
+            iqas.append(round(iqa_v, 1) if iqa_v else 0.0)
+        return labels, concs, iqas
+    except Exception:
+        return [], [], []
 
 # ================================
-# RENDERS
+# COLETA DE DADOS
 # ================================
-def render_header(coleta_ts):
-    st.title("🌎 Respira Melhor — UBS Vila Curuçá")
-    st.caption(f"Dados em tempo real · CETESB Itaim Paulista · Coletado em: {coleta_ts.strftime('%d/%m/%Y %H:%M')} · IQAr calculado conforme CONAMA 506/2024 (vigente desde 01/01/2026)")
+with st.spinner("Carregando dados da CETESB Itaim Paulista..."):
+    df = coletar_dados()
 
-def render_nav(intervalo):  # chamado como rodapé após o conteúdo de cada slide
-    """
-    Barra de status sempre visível: dots + label + barra de progresso + ⚙️
-    Controles (← → ⏸ intervalo) ficam ocultos por padrão e aparecem
-    quando o usuário clica no ícone ⚙️ — mantém visual limpo em TV e monitor.
-    """
-    slide   = st.session_state.slide
-    auto    = st.session_state.auto
-    ctrl_vis = st.session_state.ctrl_vis
-    elapsed = max(0.0, (datetime.now() - st.session_state.last_change).total_seconds())
-    pct     = min(elapsed / intervalo * 100, 100) if auto else 0
-    label, _ = SLIDES[slide]
+if df.empty:
+    st.error("Não foi possível carregar os dados da CETESB. Tente novamente em alguns minutos.")
+    st.stop()
 
-    dots = "".join(
-        f'<span class="carousel-dot{" active" if i==slide else ""}"></span>'
-        for i in range(N_SLIDES)
-    )
+pivot = preparar_pivot(df)
 
-    # ── Linha principal: [status]  [⚙️] ──────────────────────────────────
-    c_status, c_gear = st.columns([11, 1])
+iqas, valores = {}, {}
+for pol in POLUENTES:
+    if pol in pivot.columns:
+        serie = pivot[pol].dropna()
+        if not serie.empty:
+            v = serie.iloc[-1]
+            iqa = calcular_iqa(v, pol)
+            if iqa is not None:
+                iqas[pol] = iqa
+                valores[pol] = v
 
-    c_status.markdown(
-        f'<div style="display:flex;align-items:center;gap:10px;padding:5px 0;">' 
-        f'<div class="carousel-dots">{dots}</div>'
-        f'<span class="carousel-label">{label}&nbsp;({slide+1}/{N_SLIDES})</span>'
-        f'<div class="prog-wrap">'
-        f'<div class="prog-fill" style="width:{pct:.1f}%"></div>'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+if not iqas:
+    st.error("Não foi possível calcular o IQAr. Dados insuficientes.")
+    st.stop()
 
-    gear_lbl = "⚙️" if not ctrl_vis else "✕"
-    if c_gear.button(gear_lbl, key="btn_gear", width="stretch",
-                     help="Controles de navegação"):
-        st.session_state.ctrl_vis = not ctrl_vis
-        st.rerun()
+iqa_geral = max(iqas.values())
+pol_critico = max(iqas, key=iqas.get)
+nc, cc, bg = classificar(iqa_geral)
+coleta_ts = datetime.now()
+qr_b64 = gerar_qr_base64(APP_URL)
 
-    # ── Controles expandidos (só quando ctrl_vis=True) ────────────────────
-    if ctrl_vis:
-        c_prev, c_next, c_pause, c_seg = st.columns([1, 1, 1, 3])
+# Modelo + previsão
+model_xgb, features_xgb = carregar_modelo()
+fc_labels, fc_conc, fc_iqa = [], [], []
+if model_xgb is not None:
+    fc_labels, fc_conc, fc_iqa = gerar_forecast(pivot, model_xgb, features_xgb or FEATURES_MODELO)
 
-        if c_prev.button("← Anterior", key="btn_prev", width="stretch"):
-            st.session_state.slide = (slide - 1) % N_SLIDES
-            st.session_state.last_change = datetime.now()
-            st.rerun()
+# Histórico 48h
+hist_labels, hist_mp25, hist_mp10, hist_o3, hist_no2 = [], [], [], [], []
+cols_h = [p for p in ["MP2.5", "MP10", "O3", "NO2"] if p in pivot.columns]
+if cols_h:
+    hist_df = pivot[cols_h].tail(48).dropna(how="all")
+    for ts_, row in hist_df.iterrows():
+        hist_labels.append(ts_.strftime("%d/%b %Hh"))
+        hist_mp25.append(round(row["MP2.5"], 1) if "MP2.5" in row and pd.notna(row["MP2.5"]) else None)
+        hist_mp10.append(round(row["MP10"], 1)  if "MP10"  in row and pd.notna(row["MP10"])  else None)
+        hist_o3.append(round(row["O3"], 1)      if "O3"    in row and pd.notna(row["O3"])    else None)
+        hist_no2.append(round(row["NO2"], 1)    if "NO2"   in row and pd.notna(row["NO2"])   else None)
 
-        if c_next.button("Próximo →", key="btn_next", width="stretch"):
-            st.session_state.slide = (slide + 1) % N_SLIDES
-            st.session_state.last_change = datetime.now()
-            st.rerun()
+# Histórico 24h para slide de previsão
+hist24_labels, hist24_vals = [], []
+if "MP2.5" in pivot.columns:
+    h24 = pivot["MP2.5"].tail(24)
+    for ts_, v_ in h24.items():
+        hist24_labels.append(ts_.strftime("%Hh"))
+        hist24_vals.append(round(float(v_), 1) if not pd.isna(v_) else None)
 
-        lbl_pause = "⏸ Pausar" if auto else "▶ Retomar"
-        if c_pause.button(lbl_pause, key="btn_pause", width="stretch"):
-            st.session_state.auto = not auto
-            st.session_state.last_change = datetime.now()
-            st.rerun()
-
-        novo = c_seg.number_input(
-            "Intervalo entre telas (segundos)",
-            min_value=5, max_value=120,
-            value=intervalo, step=5,
-            key="input_intervalo"
-        )
-        if novo != intervalo:
-            st.session_state.intervalo = novo
-
-    return elapsed
-
-
-def render_situacao(pivot):
-    """Tela 1: apenas cards (banner já está no header fixo)."""
-    render_cards(pivot)
-
-def calcular_iqas_atuais(pivot):
-    """Calcula IQAs sem renderizar — usado pelo header e tela 1."""
-    iqas, valores = {}, {}
-    for pol in POLUENTES:
-        if pol in pivot.columns:
-            serie = pivot[pol].dropna()
-            valor = serie.iloc[-1] if not serie.empty else None
-            if valor is not None:
-                iqas[pol]   = calcular_iqa_poluente(valor, pol)
-                valores[pol] = valor
-    return iqas, valores
-
-def render_banner_iqa(pivot):
-    """Banner fixo no header — fora dos slides para não vazar entre reruns."""
-    iqas, _ = calcular_iqas_atuais(pivot)
-    if not iqas:
-        return
-    ig  = max(iqas.values())
-    pc  = max(iqas, key=iqas.get)
-    nc, cc, ec = classificar_iqa(ig)
-    rt, re = RECOMENDACOES[nc]
-    st.markdown(
-        f'<div class="iqa-banner" style="background:{cc}18;border-left:5px solid {cc};">' +
-        f'<div class="iqa-valor" style="color:{cc}">{ec}&nbsp;IQAr: {ig:.0f} — {nc}</div>' +
-        f'<div class="iqa-sep"></div>' +
-        f'<div class="iqa-rec">Poluente: <b>{NOMES_POL.get(pc, pc)}</b><br>{re} {rt}</div>' +
-        f'</div>',
-        unsafe_allow_html=True)
-    if nc == "Moderada":
-        st.warning(f"⚠️ Atenção: Qualidade do ar {nc.upper()} em Itaim Paulista. {rt}")
-    elif nc in ["Ruim", "Muito Ruim", "Péssima"]:
-        st.error(f"🚨 ALERTA: Qualidade do ar {nc.upper()} em Itaim Paulista. {rt}")
-
-def render_cards(pivot):
-    """Cards de poluentes — renderizados apenas na tela 1."""
-    iqas, valores = calcular_iqas_atuais(pivot)
-    cards = []
-    for pol in POLUENTES:
-        if pol in iqas:
-            iqa  = iqas[pol]
-            v    = valores[pol]
-            nome, cor, emoji = classificar_iqa(iqa)
-            un   = "ppm" if pol == "CO" else "µg/m³"
-            cards.append(
-                f'<div class="pol-card">' +
-                f'<div class="pol-label">{emoji} {NOMES_POL.get(pol, pol)}</div>' +
-                f'<div class="pol-iqa" style="color:{cor}">{iqa:.0f}</div>' +
-                f'<div class="pol-conc">{v:.1f} {un} · {nome}</div></div>')
-        else:
-            cards.append(
-                f'<div class="pol-card">' +
-                f'<div class="pol-label">⚪ {NOMES_POL.get(pol, pol)}</div>' +
-                f'<div class="pol-iqa" style="color:#aaa">—</div>' +
-                f'<div class="pol-conc">Não monitorado</div></div>')
-    st.markdown(f'<div class="pol-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
-
-
-def render_historico(pivot):
-    # width="stretch" — API atual do Streamlit
-    cols=[p for p in POLUENTES if p in pivot.columns and not pivot[p].dropna().empty]
-    if cols:
-        dl=pivot[cols].tail(48).reset_index().melt(id_vars="datahora",
-                                                    var_name="Poluente",value_name="Concentração")
-        fig=px.line(dl,x="datahora",y="Concentração",color="Poluente",
-                    markers=False,title="Evolução dos poluentes nas últimas 48 horas")
-        fig.update_layout(autosize=True,height=CHART_HEIGHT,
-                          margin=dict(l=32,r=16,t=44,b=32),hovermode="x unified",
-                          xaxis_title="Data/Hora",yaxis_title="Concentração",
-                          legend=dict(orientation="h",yanchor="bottom",y=1.01,xanchor="right",x=1))
-        st.plotly_chart(fig,width="stretch",config=PLOTLY_CONFIG)
+# Cards HTML
+cards_html = ""
+for pol in POLUENTES:
+    nome = NOMES_POL.get(pol, pol)
+    if pol in iqas:
+        iqa_v = iqas[pol]; v = valores[pol]
+        pnome, pcor, _ = classificar(iqa_v)
+        un = "ppm" if pol == "CO" else "µg/m³"
+        cards_html += f"""
+            <div style="background:white;border-radius:14px;padding:14px;
+                        text-align:center;border:1px solid #E8ECF0;">
+                <div style="font-size:14px;font-weight:600;color:#8A94A6;">{nome}</div>
+                <div style="font-size:34px;font-weight:700;color:{pcor};">{iqa_v:.0f}</div>
+                <div style="font-size:13px;color:#555;margin:4px 0;">{v:.1f} {un}</div>
+                <div style="font-size:13px;color:{pcor};font-weight:600;">{pnome}</div>
+            </div>"""
     else:
-        st.warning("Sem dados históricos suficientes para exibir.")
+        cards_html += f"""
+            <div style="background:#F8F9FA;border-radius:14px;padding:14px;
+                        text-align:center;border:1px solid #E8ECF0;">
+                <div style="font-size:14px;font-weight:600;color:#8A94A6;">{nome}</div>
+                <div style="font-size:34px;font-weight:700;color:#ccc;">—</div>
+                <div style="font-size:12px;color:#B0B8C4;margin-top:8px;">Não monitorado</div>
+            </div>"""
 
-def render_previsao(pivot, serie_forecast):
-    if serie_forecast is None:
-        st.warning("⚠️ Arquivo `modelo_xgboost.pkl` não encontrado."); return
-    fig=go.Figure()
-    if "MP2.5" in pivot.columns:
-        h=pivot["MP2.5"].tail(24)
-        fig.add_trace(go.Scatter(x=h.index,y=h.values,mode="lines",name="Medido (últimas 24h)",
-                                 line=dict(color="#1976D2",width=2)))
-    fig.add_trace(go.Scatter(x=serie_forecast.index,y=serie_forecast.values,
-                             mode="lines+markers",name="Previsão (próximas 6h)",
-                             line=dict(color="#FF6D00",width=2,dash="dash"),marker=dict(size=5)))
-    fig.update_layout(autosize=True,height=CHART_HEIGHT,
-                      margin=dict(l=40,r=40,t=50,b=40),hovermode="x unified",
-                      title="Partículas finas (MP2.5) — medido hoje + previsão para as próximas 6h",
-                      xaxis_title="Data/Hora",yaxis_title="Concentração (µg/m³)")
-    # width="stretch" — API atual do Streamlit
-    st.plotly_chart(fig,width="stretch",config=PLOTLY_CONFIG)
-    st.caption("Previsão gerada por inteligência artificial · dados históricos da CETESB Itaim Paulista")
+icon_nc = "✅" if nc == "Boa" else ("⚠️" if nc == "Moderada" else "🚨")
+tem_previsao = len(fc_labels) > 0
+fc_labels_js = json.dumps(fc_labels)
+fc_conc_js   = json.dumps(fc_conc)
+fc_iqa_js    = json.dumps(fc_iqa)
+all_labels_js= json.dumps(hist24_labels + fc_labels)
+hist_data_js = json.dumps(hist24_vals + [None]*len(fc_labels))
+fc_data_js   = json.dumps([None]*len(hist24_labels) + fc_conc)
 
-def render_subindice(pivot, serie_forecast, csv_bytes):
-    if serie_forecast is None:
-        st.warning("Sem previsão disponível."); return
-
-    subindice=serie_forecast.rolling(3,min_periods=1).mean().apply(
-        lambda v: calcular_iqa_poluente(v,"MP2.5"))
-
-    fig=go.Figure()
-    fig.add_trace(go.Scatter(x=subindice.index,y=subindice.values,
-                             mode="lines+markers",name="Índice previsto",
-                             line=dict(color="#FF6D00",width=3),
-                             fill="tozeroy",fillcolor="rgba(255,109,0,0.1)"))
-    for lo,hi,nome,cor,_ in CLASSES_IQA:
-        fig.add_hrect(y0=lo,y1=min(hi,300),fillcolor=cor,opacity=0.07,line_width=0,
-                      annotation_text=nome,annotation_position="right")
-    y_max=max(60,float(subindice.max())+20)
-    fig.update_layout(autosize=True,height=CHART_HEIGHT,
-                      margin=dict(l=40,r=40,t=50,b=40),
-                      title="Índice de Qualidade do Ar previsto para as próximas 6 horas",
-                      xaxis_title="Data/Hora",yaxis_title="Índice de Qualidade do Ar",
-                      yaxis=dict(range=[0,y_max]))
-    # width="stretch" — API atual do Streamlit
-    st.plotly_chart(fig,width="stretch",config=PLOTLY_CONFIG)
-
-    im=subindice.max(); tm=subindice.idxmax()
-    nf,_,ef=classificar_iqa(im); rf,_=RECOMENDACOES[nf]
-    st.info(f"{ef} Pior momento previsto: **IQA {im:.0f} ({nf})** às {tm.strftime('%d/%m %H:%M')} · {rf}")
-
-    with st.expander("📋 Ver dados brutos"):
-        st.dataframe(pivot.tail(48).style.format("{:.2f}"),width="stretch")
-        # FIX: key estável baseado no timestamp de coleta evita que o rerun
-        # do carrossel invalide o arquivo temporário do download_button.
-        st.download_button(
-            "📥 Baixar CSV",
-            csv_bytes,
-            "itaim_paulista_48h.csv",
-            "text/csv",
-            key=f"dl_{st.session_state.get('csv_ts','0')}",
-        )
-
-
-def render_info():
-    """
-    Tela educativa — renderizada via st.iframe() para evitar
-    sanitização do st.markdown que remove tags table/div complexas.
-    """
-    html_completo = """<!DOCTYPE html>
+# ================================
+# HTML COMPLETO
+# ================================
+HTML_COMPLETO = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 13px; line-height: 1.45; color: #333;
-    background: transparent; padding: 4px 2px 8px 2px;
-  }
-  .hdr {
-    background: #E3F2FD; border-left: 4px solid #1976D2;
-    border-radius: 8px; padding: 8px 14px; margin-bottom: 9px;
-  }
-  .hdr-t { font-size: 16px; font-weight: 700; color: #1565C0; margin-bottom: 3px; }
-  .hdr-b { font-size: 11.5px; color: #333; line-height: 1.45; }
-  .cols   { display: flex; gap: 14px; align-items: flex-start; }
-  .left   { flex: 1.25; min-width: 0; }
-  .right  { flex: 1;    min-width: 0; }
-  .lbl {
-    font-size: 10px; font-weight: 600; color: #666;
-    text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px;
-  }
-  table   { width: 100%; border-collapse: collapse; font-size: 11px; }
-  th {
-    padding: 4px 6px; background: #F5F5F5;
-    border-bottom: 2px solid #ddd; font-weight: 600; text-align: center;
-  }
-  th:first-child { text-align: left; }
-  td { padding: 4px 6px; text-align: center; border-bottom: 1px solid #eee; }
-  td:first-child { text-align: left; font-weight: 700; }
-  .sc {
-    display: flex; align-items: flex-start; gap: 7px;
-    border-radius: 7px; padding: 6px 9px; margin-bottom: 5px;
-  }
-  .sc-ico { font-size: 14px; flex-shrink: 0; line-height: 1.3; }
-  .sc-t   { font-weight: 700; font-size: 11.5px; margin-bottom: 2px; }
-  .sc-b   { font-size: 10.5px; color: #333; line-height: 1.38; }
-  .disc {
-    margin-top: 9px; padding: 8px 12px;
-    background: #E3F2FD; border-left: 3px solid #1565C0;
-    border-radius: 7px; font-size: 10.5px; color: #333; line-height: 1.5;
-  }
-  .disc b { color: #1565C0; }
-  .disc a { color: #1565C0; }
-  .src {
-    margin-top: 8px; padding: 4px 10px; background: #F5F5F5;
-    border-radius: 6px; font-size: 9.5px; color: #aaa; line-height: 1.4;
-  }
-  @media (max-width: 650px) { .cols { flex-direction: column; } }
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+     background:#F0F2F5;color:#1a1a2e;padding:12px;min-height:100vh}}
+.card{{background:white;border-radius:16px;padding:16px;border:1px solid #E8ECF0}}
+.badge{{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;
+        border-radius:30px;font-size:14px;font-weight:600}}
+.slide{{display:none}}.slide.active{{display:block}}
+.nav-dot{{width:12px;height:12px;border-radius:50%;background:#D0D5DD;
+          display:inline-block;margin:0 6px;cursor:pointer;transition:all .2s}}
+.nav-dot.active{{background:#185FA5;transform:scale(1.2)}}
+.cards-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+             gap:12px;margin-bottom:15px}}
+.footer-nav{{position:fixed;bottom:0;left:0;right:0;background:white;
+             border-top:2px solid #E8ECF0;padding:12px 16px;
+             display:flex;align-items:center;justify-content:center;
+             gap:12px;flex-wrap:wrap;z-index:100}}
+.prog-track{{flex:1;height:4px;background:#E8ECF0;border-radius:2px;margin:0 10px}}
+.prog-fill{{height:4px;background:#185FA5;border-radius:2px;width:0%;transition:width .3s linear}}
+.content-wrap{{padding-bottom:60px}}
+.title-text{{font-size:16px;font-weight:700;margin-bottom:12px}}
+.table-wrap{{overflow-x:auto}}
+table{{width:100%;border-collapse:collapse}}
+th,td{{padding:10px 8px;text-align:center;font-size:13px}}
+th{{background:#2C3E50;color:white;font-weight:600}}
+td:first-child{{text-align:left;font-weight:600}}
+.sintomas-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:12px}}
+.sintoma-card{{border-radius:12px;padding:12px}}
+.sintoma-card div:first-child{{font-size:14px;font-weight:700;margin-bottom:4px}}
+.sintoma-card div:last-child{{font-size:12px;line-height:1.4}}
+.info-box{{background:#EBF3FD;border-left:4px solid #185FA5;border-radius:10px;
+           padding:14px;margin-bottom:12px;font-size:14px;line-height:1.6}}
+@media(max-width:768px){{
+  .cards-grid{{grid-template-columns:repeat(3,1fr);gap:8px}}
+  .header-title{{font-size:14px!important}}
+}}
+@media(max-width:480px){{
+  .cards-grid{{grid-template-columns:repeat(2,1fr)}}
+}}
 </style>
 </head>
 <body>
+<div class="content-wrap">
 
-<div class="hdr">
-  <div class="hdr-t">&#x2139;&#xFE0F; O que &eacute; o &Iacute;ndice de Qualidade do Ar (IQAr)?</div>
-  <div class="hdr-b">
-    Pense no IQAr como o <b>term&ocirc;metro do ar</b>: vai de <b>0 a 400</b>, quanto menor melhor.
-    Sensores medem os poluentes a cada hora e uma f&oacute;rmula converte tudo numa nota &uacute;nica &mdash;
-    sempre a do poluente mais preocupante. Tabela vigente desde <b>01/01/2026</b> (CONAMA 506/2024).
+<!-- HEADER -->
+<div style="display:flex;justify-content:space-between;align-items:center;
+            background:white;border-radius:12px;padding:12px 16px;
+            margin-bottom:12px;border:1px solid #E8ECF0">
+  <span class="header-title" style="font-size:18px;font-weight:700">
+    🌎 Respira Melhor — UBS Vila Curuçá</span>
+  <span style="font-size:11px;color:#8A94A6;white-space:nowrap">
+    CETESB Itaim Paulista · {coleta_ts.strftime("%d/%m/%Y %H:%M")}</span>
+</div>
+
+<!-- SLIDE 0 - VISÃO GERAL -->
+<div class="slide" id="slide0">
+  <div style="display:grid;grid-template-columns:minmax(120px,160px) 1fr;
+              gap:12px;margin-bottom:15px">
+    <div style="background:{bg};border:1px solid {cc}40;border-radius:14px;
+                padding:14px;text-align:center">
+      <div style="font-size:13px;font-weight:600;color:{cc}">IQAr</div>
+      <div style="font-size:52px;font-weight:700">{iqa_geral:.0f}</div>
+      <div class="badge" style="background:{cc}22;color:{cc};margin-top:6px">{nc}</div>
+    </div>
+    <div style="background:{bg};border:1px solid {cc}40;border-radius:14px;padding:14px">
+      <div style="font-size:16px;font-weight:700;color:{cc};margin-bottom:6px">
+        {icon_nc} {nc}</div>
+      <div style="font-size:14px;color:#2c3e50;line-height:1.5">
+        {RECOMENDACOES.get(nc, "")}</div>
+      <div style="margin-top:8px;font-size:13px;color:#8A94A6">
+        Principal poluente: <b>{NOMES_POL.get(pol_critico, pol_critico)}</b></div>
+    </div>
+  </div>
+  <div class="cards-grid">{cards_html}</div>
+  <div class="card">
+    <div class="title-text">📈 Evolução dos poluentes — últimas 48h</div>
+    <div style="position:relative;height:260px;width:100%"><canvas id="chart0"></canvas></div>
   </div>
 </div>
 
-<div class="cols">
-
-  <!-- COLUNA ESQUERDA -->
-  <div class="left">
-    <div class="lbl">Tabela oficial &middot; CONAMA 506/2024</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Qualidade</th><th>IQAr</th>
-          <th>MP2.5<br>(&micro;g/m&sup3;)</th>
-          <th>MP10<br>(&micro;g/m&sup3;)</th>
-          <th>O3<br>(&micro;g/m&sup3;)</th>
-          <th>NO2<br>(&micro;g/m&sup3;)</th>
-          <th>CO<br>(ppm)</th>
-          <th>SO2<br>(&micro;g/m&sup3;)</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr style="background:#E8F5E9;">
-          <td style="color:#1B5E20;">&#127866; N1 Boa</td>
-          <td>0&ndash;40</td><td>0&ndash;15</td><td>0&ndash;45</td>
-          <td>0&ndash;100</td><td>0&ndash;200</td><td>0&ndash;9</td><td>0&ndash;40</td>
-        </tr>
-        <tr style="background:#FFFDE7;">
-          <td style="color:#F57F17;">&#127864; N2 Moderada</td>
-          <td>41&ndash;80</td><td>15&ndash;50</td><td>45&ndash;100</td>
-          <td>100&ndash;130</td><td>200&ndash;240</td><td>9&ndash;11</td><td>40&ndash;50</td>
-        </tr>
-        <tr style="background:#FFF3E0;">
-          <td style="color:#E65100;">&#128993; N3 Ruim</td>
-          <td>81&ndash;120</td><td>50&ndash;75</td><td>100&ndash;150</td>
-          <td>130&ndash;160</td><td>240&ndash;320</td><td>11&ndash;13</td><td>50&ndash;125</td>
-        </tr>
-        <tr style="background:#FFEBEE;">
-          <td style="color:#B71C1C;">&#128308; N4 Muito Ruim</td>
-          <td>121&ndash;200</td><td>75&ndash;125</td><td>150&ndash;250</td>
-          <td>160&ndash;200</td><td>320&ndash;1130</td><td>13&ndash;15</td><td>125&ndash;800</td>
-        </tr>
-        <tr style="background:#F3E5F5;">
-          <td style="color:#4A148C;">&#11035; N5 P&eacute;ssima</td>
-          <td>201&ndash;400</td><td>125&ndash;300</td><td>250&ndash;600</td>
-          <td>200&ndash;800</td><td>1130&ndash;3750</td><td>15&ndash;50</td><td>800&ndash;2620</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="disc">
-      <b>&#128203; Este painel &eacute; informativo.</b>
-      Recomenda&ccedil;&otilde;es baseadas no Guia MMA/CETESB jan/2025 e diretrizes OMS 2021.
-      <b>N&atilde;o substitui orienta&ccedil;&atilde;o m&eacute;dica.</b><br>
-      Em situa&ccedil;&atilde;o <b>Muito Ruim ou P&eacute;ssima</b>, siga a
-      <a href="https://cetesb.sp.gov.br/ar/" target="_blank">CETESB</a>
-      e a Vigil&acirc;ncia Sanit&aacute;ria local.<br>
-      Sintomas graves: procure a UBS ou ligue <b>192 (SAMU)</b>.<br>
-      Epis&oacute;dio Cr&iacute;tico: responsabilidade da CETESB (CONAMA 491/2018, Art. 10&ndash;11).
+<!-- SLIDE 1 - PREVISÃO -->
+<div class="slide" id="slide1">
+  <div style="display:grid;grid-template-columns:minmax(120px,160px) 1fr;
+              gap:12px;margin-bottom:15px">
+    <div style="background:{bg};border:1px solid {cc}40;border-radius:14px;
+                padding:14px;text-align:center">
+      <div style="font-size:12px;color:#8A94A6">IQAr atual</div>
+      <div style="font-size:42px;font-weight:700">{iqa_geral:.0f}</div>
+      <div class="badge" style="background:{cc}22;color:{cc};margin-top:4px">{nc}</div>
+    </div>
+    <div class="info-box">
+      <b style="font-size:15px">🤖 Previsão com IA (XGBoost)</b><br>
+      {"Modelo treinado com dados históricos da CETESB. Prevê concentração de MP2.5 para as próximas 6 horas usando 25 features." if tem_previsao else "⚠️ Arquivo modelo_xgboost.pkl não encontrado. Exibindo dados históricos apenas."}
     </div>
   </div>
-
-  <!-- COLUNA DIREITA -->
-  <div class="right">
-    <div class="lbl">O que voc&ecirc; pode sentir &mdash; por faixa</div>
-
-    <div class="sc" style="background:#E8F5E9;">
-      <span class="sc-ico">&#129001;</span>
-      <div>
-        <div class="sc-t" style="color:#1B5E20;">Boa &mdash; IQAr 0 a 40</div>
-        <div class="sc-b">Nenhum efeito esperado. Aproveite o ar livre!</div>
-      </div>
-    </div>
-
-    <div class="sc" style="background:#FFFDE7;">
-      <span class="sc-ico">&#129000;</span>
-      <div>
-        <div class="sc-t" style="color:#F57F17;">Moderada &mdash; IQAr 41 a 80</div>
-        <div class="sc-b"><b>Crian&ccedil;as, idosos e pessoas com asma ou doen&ccedil;as card&iacute;acas</b>
-        podem sentir tosse seca e cansa&ccedil;o. A popula&ccedil;&atilde;o em geral n&atilde;o &eacute; afetada.</div>
-      </div>
-    </div>
-
-    <div class="sc" style="background:#FFF3E0;">
-      <span class="sc-ico">&#128992;</span>
-      <div>
-        <div class="sc-t" style="color:#E65100;">Ruim &mdash; IQAr 81 a 120</div>
-        <div class="sc-b"><b>Toda a popula&ccedil;&atilde;o</b> pode sentir tosse, cansa&ccedil;o
-        e ardor nos olhos, nariz e garganta. Evite atividades f&iacute;sicas ao ar livre.</div>
-      </div>
-    </div>
-
-    <div class="sc" style="background:#FFEBEE;">
-      <span class="sc-ico">&#128308;</span>
-      <div>
-        <div class="sc-t" style="color:#B71C1C;">Muito Ruim &mdash; IQAr 121 a 200</div>
-        <div class="sc-b">Tosse intensa, falta de ar, respira&ccedil;&atilde;o ofegante.
-        <b>Grupos sens&iacute;veis: n&atilde;o saia de casa.</b>
-        Evite esfor&ccedil;os ao ar livre.</div>
-      </div>
-    </div>
-
-    <div class="sc" style="background:#F3E5F5;">
-      <span class="sc-ico">&#11035;</span>
-      <div>
-        <div class="sc-t" style="color:#4A148C;">P&eacute;ssima &mdash; IQAr acima de 200</div>
-        <div class="sc-b"><b>ALERTA:</b> Risco grave de doen&ccedil;as respirat&oacute;rias
-        e cardiovasculares. Permane&ccedil;a em ambientes fechados.
-        Procure atendimento m&eacute;dico imediatamente.</div>
-      </div>
-    </div>
-
+  <div class="card" style="margin-bottom:8px">
+    <div class="title-text">📊 MP2.5 — histórico (24h) + previsão (6h)</div>
+    <div style="position:relative;height:220px;width:100%"><canvas id="chart1"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="title-text">🎯 IQAr previsto (MP2.5)</div>
+    <div style="position:relative;height:200px;width:100%"><canvas id="chart2"></canvas></div>
   </div>
 </div>
 
-<div class="src">
-  &#128225; CETESB &mdash; Esta&ccedil;&atilde;o Itaim Paulista &middot;
-  Atualiza&ccedil;&atilde;o a cada 10 min &middot;
-  IQAr: CONAMA 506/2024 &middot; Guia MMA/CETESB jan/2025 &middot;
-  Epis&oacute;dios cr&iacute;ticos: CONAMA 491/2018 Anexo III
+<!-- SLIDE 2 - QUALIDADE DO AR -->
+<div class="slide" id="slide2">
+  <div style="background:{bg};border:1px solid {cc}40;border-radius:14px;
+              padding:16px;margin-bottom:12px;display:flex;align-items:center;
+              gap:16px;flex-wrap:wrap">
+    <div style="font-size:48px;font-weight:700;color:{cc}">{iqa_geral:.0f}</div>
+    <div>
+      <div style="font-size:18px;font-weight:700;color:{cc}">{nc}</div>
+      <div style="font-size:14px;color:#5A6575">{RECOMENDACOES.get(nc, "")}</div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="title-text">📋 Tabela CONAMA 506/2024 (vigente desde 01/01/2026)</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Qualidade</th><th>IQAr</th><th>MP2.5</th><th>MP10</th>
+          <th>O₃</th><th>NO₂</th><th>CO</th><th>SO₂</th></tr></thead>
+        <tbody>
+          <tr style="background:#E8F8EF"><td>🟢 N1 — Boa</td><td>0–40</td><td>0–15</td><td>0–45</td><td>0–100</td><td>0–200</td><td>0–9</td><td>0–40</td></tr>
+          <tr style="background:#FEF9E7"><td>🟡 N2 — Moderada</td><td>41–80</td><td>15–50</td><td>45–100</td><td>100–130</td><td>200–240</td><td>9–11</td><td>40–50</td></tr>
+          <tr style="background:#FEF0E7"><td>🟠 N3 — Ruim</td><td>81–120</td><td>50–75</td><td>100–150</td><td>130–160</td><td>240–320</td><td>11–13</td><td>50–125</td></tr>
+          <tr style="background:#FDEDEC"><td>🔴 N4 — Muito Ruim</td><td>121–200</td><td>75–125</td><td>150–250</td><td>160–200</td><td>320–1130</td><td>13–15</td><td>125–800</td></tr>
+          <tr style="background:#F5EEF8"><td>⚫ N5 — Péssima</td><td>201–400</td><td>125–300</td><td>250–600</td><td>200–800</td><td>1130–3750</td><td>15–50</td><td>800–2620</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="sintomas-grid">
+    <div class="sintoma-card" style="background:#E8F8EF">
+      <div style="color:#27AE60">🟢 Boa</div>
+      <div>Sem restrições. Atividades ao ar livre liberadas para todos.</div></div>
+    <div class="sintoma-card" style="background:#FEF9E7">
+      <div style="color:#F39C12">🟡 Moderada</div>
+      <div>Grupos sensíveis devem reduzir esforço físico intenso ao ar livre.</div></div>
+    <div class="sintoma-card" style="background:#FEF0E7">
+      <div style="color:#E67E22">🟠 Ruim</div>
+      <div>Grupos sensíveis: evitar ao ar livre. População geral: reduzir esforços.</div></div>
+    <div class="sintoma-card" style="background:#FDEDEC">
+      <div style="color:#E74C3C">🔴 Muito Ruim</div>
+      <div>Evitar exposição ao ar livre. Permanecer em ambientes fechados.</div></div>
+    <div class="sintoma-card" style="background:#F5EEF8">
+      <div style="color:#8E44AD">⚫ Péssima</div>
+      <div>Evitar sair de casa. Suspender atividades externas. SAMU: 192.</div></div>
+  </div>
 </div>
 
-</body>
-</html>"""
-    st.iframe(html_completo, height=520)
+<!-- SLIDE 3 - SOBRE -->
+<div class="slide" id="slide3">
+  <div class="info-box">
+    <b style="font-size:17px">ℹ️ O que é o IQAr?</b><br>
+    O Índice de Qualidade do Ar vai de <b>0 a 400</b> — quanto menor, melhor o ar.
+    Sensores medem os poluentes a cada hora e uma fórmula linear os converte numa nota única,
+    sempre a do poluente mais preocupante. Tabela vigente desde <b>01/01/2026</b>
+    conforme <b>CONAMA 506/2024</b>.
+  </div>
+  <div class="card" style="margin-bottom:12px;display:flex;align-items:center;
+                             gap:20px;flex-wrap:wrap">
+    <img src="{qr_b64}" style="width:110px;height:110px;border-radius:12px;
+                                border:2px solid #E8ECF0;flex-shrink:0">
+    <div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px">📱 Acesse pelo celular</div>
+      <a href="{APP_URL}" target="_blank"
+         style="color:#185FA5;font-size:14px">respiramelhor.streamlit.app</a>
+      <div style="font-size:13px;color:#8A94A6;margin-top:4px">
+        Aponte a câmera para o QR Code</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="title-text">📋 Sobre este painel</div>
+    <div style="font-size:14px;color:#5A6575;line-height:1.6">
+      Serviço informativo da <b>UBS Vila Curuçá</b>. Baseado no Guia MMA/CETESB jan/2025
+      e CONAMA 506/2024.<br><br>
+      <b style="color:#1a1a2e">Não substitui orientação médica.</b><br>
+      Em situação Muito Ruim ou Péssima, siga a CETESB e a Vigilância Sanitária.<br>
+      Sintomas graves: UBS ou <b>192 (SAMU)</b>.<br><br>
+      <b style="color:#1a1a2e">Grupos sensíveis:</b>
+      <span style="color:#5A6575"> crianças, idosos, gestantes, asmáticos,
+      pessoas com doenças respiratórias (DPOC, bronquite) ou cardiovasculares.</span><br><br>
+      <span style="font-size:12px;color:#B0B8C4">
+        Recomendações baseadas em diretrizes técnico-científicas da OMS, EPA e CETESB.
+        Episódio Crítico: responsabilidade CETESB (CONAMA 491/2018, Art. 10–11).</span>
+    </div>
+  </div>
+  <div style="margin-top:10px;padding:10px 14px;background:#F5F7FA;border-radius:10px;
+              border-left:3px solid #B0B8C4">
+    <span style="font-size:12px;color:#8A94A6">
+      ℹ️ Os dados são atualizados a cada hora e refletem a qualidade do ar
+      nas últimas horas, não o instante exato da consulta.
+    </span>
+  </div>
+</div>
 
+</div>
+
+<!-- NAVEGAÇÃO FIXA -->
+<div class="footer-nav">
+  <div id="nav-dots">
+    <span class="nav-dot active" onclick="goTo(0)"></span>
+    <span class="nav-dot"        onclick="goTo(1)"></span>
+    <span class="nav-dot"        onclick="goTo(2)"></span>
+    <span class="nav-dot"        onclick="goTo(3)"></span>
+  </div>
+  <span id="slide-lbl" style="font-size:13px;color:#777;white-space:nowrap">
+    📊 Visão Geral (1/4)</span>
+  <div class="prog-track"><div id="prog" class="prog-fill"></div></div>
+</div>
+
+<script>
+const NAMES = {json.dumps(SLIDE_NAMES)};
+const INTV  = {INTERVALO_SEGUNDOS} * 1000;
+let cur = 0, timer, progTimer;
+
+function goTo(n) {{
+  document.querySelectorAll('.slide').forEach((s,i)=> s.classList.toggle('active',i===n));
+  document.querySelectorAll('.nav-dot').forEach((d,i)=> d.classList.toggle('active',i===n));
+  document.getElementById('slide-lbl').innerText = NAMES[n] + ` (${{n+1}}/4)`;
+  cur = n;
+  resetTimer();
+}}
+
+function resetTimer() {{
+  clearTimeout(timer); clearInterval(progTimer);
+  const bar = document.getElementById('prog');
+  bar.style.width = '0%';
+  const start = Date.now();
+  progTimer = setInterval(()=> {{
+    const pct = (Date.now()-start)/INTV*100;
+    bar.style.width = Math.min(pct,100)+'%';
+  }}, 50);
+  timer = setTimeout(()=> goTo((cur+1)%4), INTV);
+}}
+
+// Config padrão Chart.js
+Chart.defaults.font.family = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+Chart.defaults.font.size   = 11;
+Chart.defaults.color       = '#8A94A6';
+
+const baseOpts = {{
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {{ tooltip: {{ mode:'index', intersect:false }} }},
+  scales: {{
+    x: {{ grid: {{ display:false }}, ticks: {{ maxRotation:30, maxTicksLimit:8 }} }},
+    y: {{ grid: {{ color:'#F0F2F5' }} }}
+  }}
+}};
+
+// Gráfico 0 - Histórico 48h
+new Chart(document.getElementById('chart0'), {{
+  type: 'line',
+  data: {{
+    labels: {json.dumps(hist_labels)},
+    datasets: [
+      {{ label:'MP2.5', data:{json.dumps(hist_mp25)}, borderColor:'#2980B9', borderWidth:2.5, pointRadius:0, tension:0.4, fill:false }},
+      {{ label:'MP10',  data:{json.dumps(hist_mp10)}, borderColor:'#27AE60', borderWidth:2.5, pointRadius:0, tension:0.4, fill:false }},
+      {{ label:'O₃',   data:{json.dumps(hist_o3)},   borderColor:'#E74C3C', borderWidth:2.5, pointRadius:0, tension:0.4, fill:false }},
+      {{ label:'NO₂',  data:{json.dumps(hist_no2)},  borderColor:'#F39C12', borderWidth:2.5, pointRadius:0, tension:0.4, fill:false }}
+    ]
+  }},
+  options: {{ ...baseOpts, plugins: {{ ...baseOpts.plugins,
+    legend: {{ position:'bottom', labels: {{ font: {{ size:11 }} }} }} }} }}
+}});
+
+// Gráficos 1 e 2 — só criados se houver dados de previsão ou histórico 24h
+const allLabels = {all_labels_js};
+const histData  = {hist_data_js};
+const fcData    = {fc_data_js};
+const fcLabels  = {fc_labels_js};
+const fcIqa     = {fc_iqa_js};
+
+if (allLabels.length > 0) {{
+  new Chart(document.getElementById('chart1'), {{
+    type: 'line',
+    data: {{
+      labels: allLabels,
+      datasets: [
+        {{ label:'Medido (24h)',    data:histData, borderColor:'#2980B9', borderWidth:2.5, pointRadius:0, tension:0.4, fill:false }},
+        {{ label:'Previsão (6h)',   data:fcData,   borderColor:'#E67E22', borderWidth:3, borderDash:[6,4], pointRadius:4, pointBackgroundColor:'#E67E22', tension:0.4, fill:false }}
+      ]
+    }},
+    options: {{ ...baseOpts,
+      plugins: {{ ...baseOpts.plugins, legend: {{ position:'bottom', labels: {{ font: {{ size:11 }} }} }} }},
+      scales: {{ ...baseOpts.scales,
+        y: {{ ...baseOpts.scales.y, title: {{ display:true, text:'µg/m³', font: {{ size:11 }} }} }} }}
+    }}
+  }});
+}}
+
+if (fcLabels.length > 0) {{
+  // Calcular yMax para o gráfico (mínimo 50 para sempre mostrar pelo menos faixa Boa e Moderada)
+  const iqa_max = Math.max(...fcIqa.filter(v => v !== null));
+  const yMax = Math.max(90, iqa_max + 15);
+
+  new Chart(document.getElementById('chart2'), {{
+    type: 'line',
+    data: {{
+      labels: fcLabels,
+      datasets: [
+        // Faixas coloridas de fundo (datasets de área preenchida)
+        {{ label:'_boa',      data: fcLabels.map(()=>40),  borderWidth:0, pointRadius:0,
+           backgroundColor:'rgba(39,174,96,0.12)',  fill:{{ target:'origin', above:'rgba(39,174,96,0.12)' }},
+           tension:0, order:5 }},
+        {{ label:'_mod',      data: fcLabels.map(()=>80),  borderWidth:0, pointRadius:0,
+           backgroundColor:'rgba(243,156,18,0.12)', fill:{{ target:{{ value:40 }}, above:'rgba(243,156,18,0.12)' }},
+           tension:0, order:4 }},
+        {{ label:'_ruim',     data: fcLabels.map(()=>120), borderWidth:0, pointRadius:0,
+           backgroundColor:'rgba(230,126,34,0.12)', fill:{{ target:{{ value:80 }}, above:'rgba(230,126,34,0.12)' }},
+           tension:0, order:3 }},
+        {{ label:'_mruim',    data: fcLabels.map(()=>200), borderWidth:0, pointRadius:0,
+           backgroundColor:'rgba(231,76,60,0.12)',  fill:{{ target:{{ value:120 }}, above:'rgba(231,76,60,0.12)' }},
+           tension:0, order:2 }},
+        // Linha principal do IQAr previsto
+        {{ label:'IQAr previsto', data:fcIqa,
+           borderColor:'#8E44AD', borderWidth:3, pointRadius:5,
+           pointBackgroundColor:'#8E44AD', tension:0.3, fill:false, order:1 }}
+      ]
+    }},
+    options: {{
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {{
+        legend: {{ display:false }},
+        tooltip: {{
+          mode:'index', intersect:false,
+          filter: item => item.dataset.label === 'IQAr previsto'
+        }},
+        annotation: {{
+          annotations: {{
+            lBoa:  {{ type:'line', yMin:40,  yMax:40,  borderColor:'rgba(39,174,96,0.5)',  borderWidth:1, borderDash:[4,4],
+                      label:{{ content:'Boa',       display:true, position:'end', color:'#27AE60', font:{{size:10}}, padding:2 }} }},
+            lMod:  {{ type:'line', yMin:80,  yMax:80,  borderColor:'rgba(243,156,18,0.5)', borderWidth:1, borderDash:[4,4],
+                      label:{{ content:'Moderada',  display:true, position:'end', color:'#F39C12', font:{{size:10}}, padding:2 }} }},
+            lRuim: {{ type:'line', yMin:120, yMax:120, borderColor:'rgba(230,126,34,0.5)', borderWidth:1, borderDash:[4,4],
+                      label:{{ content:'Ruim',      display:true, position:'end', color:'#E67E22', font:{{size:10}}, padding:2 }} }}
+          }}
+        }}
+      }},
+      scales: {{
+        x: {{ grid:{{ display:false }}, ticks:{{ maxRotation:0, font:{{ size:11 }} }} }},
+        y: {{
+          grid: {{ color:'#F0F2F5' }},
+          min: 0, max: yMax,
+          title: {{ display:true, text:'IQAr MP2.5', font:{{ size:11 }} }}
+        }}
+      }}
+    }}
+  }});
+}}
+
+goTo(0);
+</script>
+</body></html>"""
 
 # ================================
-# SESSION STATE
+# EXIBIR
 # ================================
-if "slide"       not in st.session_state: st.session_state.slide       = 0
-if "auto"        not in st.session_state: st.session_state.auto        = True
-if "intervalo"   not in st.session_state: st.session_state.intervalo   = INTERVALO_PADRAO
-if "last_change" not in st.session_state: st.session_state.last_change = datetime.now()
-if "ctrl_vis"    not in st.session_state: st.session_state.ctrl_vis    = False
+st.iframe(HTML_COMPLETO, height=860, width="stretch")
 
-# ================================
-# DADOS  (cache TTL=600 — reruns não recoletam)
-# ================================
-coleta_ts=datetime.now()
-with st.spinner("Carregando dados da CETESB Itaim Paulista..."):
-    df,erros_coleta=coletar_dados()
-
-if df.empty:
-    st.error("Não foi possível carregar dados da CETESB. Tente novamente em alguns minutos.")
-    st.stop()
-
-pivot     = preparar_pivot(df)
-# FIX: salvar csv no session_state para persistir entre reruns do carrossel.
-# O st.download_button cria um arquivo temporário que é invalidado pelo st.rerun().
-# Armazenando no session_state, o mesmo bytes object é reutilizado.
-_csv_novo = pivot.tail(48).to_csv().encode("utf-8")
-if "csv_bytes" not in st.session_state or st.session_state.get("csv_ts") != coleta_ts.strftime("%Y%m%d%H"):
-    st.session_state.csv_bytes = _csv_novo
-    st.session_state.csv_ts    = coleta_ts.strftime("%Y%m%d%H")
-csv_bytes = st.session_state.csv_bytes
-model_xgb,features_xgb=carregar_modelo()
-
-serie_forecast_cache=None
-if model_xgb is not None:
-    try:
-        feat=features_xgb if features_xgb is not None else FEATURES_MODELO
-        serie_forecast_cache=gerar_forecast(pivot,model_xgb,feat,horas=6)
-    except Exception as e:
-        st.warning(f"Erro ao gerar previsão: {e}")
-
-# ================================
-# LAYOUT
-# ================================
-render_header(coleta_ts)
-
-# Banner IQA fixo logo abaixo do título — sempre visível em todas as telas.
-render_banner_iqa(pivot)
-
-slide_key = SLIDES[st.session_state.slide][1]
-
-# Conteúdo do slide atual
-if slide_key == "situacao":
-    render_situacao(pivot)
-    render_historico(pivot)
-elif slide_key == "previsao":
-    render_previsao(pivot, serie_forecast_cache)
-elif slide_key == "subindice":
-    render_subindice(pivot, serie_forecast_cache, csv_bytes)
-elif slide_key == "info":
-    render_info()
-
-# Barra de navegação no RODAPÉ — após o conteúdo de cada slide.
-# O usuário vê primeiro as informações, depois a navegação discreta embaixo.
-st.divider()
-elapsed = render_nav(st.session_state.intervalo)
-
-# ================================
-# AUTO-AVANÇO
-# FIX CRÍTICO: substituído sleep(60-elapsed) por sleep(2)+rerun incremental.
-# O sleep longo bloqueava o processo do Streamlit para TODOS os usuários.
-# Com sleep(2), o processo fica livre 58s de cada 60s, e só acorda para:
-#   1. atualizar a barra de progresso (visual)
-#   2. verificar se chegou a hora de trocar o slide
-# Os dados ficam em cache — nenhuma requisição extra acontece.
-# ================================
-if st.session_state.auto:
-    if elapsed >= st.session_state.intervalo:
-        st.session_state.slide = (st.session_state.slide + 1) % N_SLIDES
-        st.session_state.last_change = datetime.now()
-    time.sleep(2)
-    st.rerun()
-
-# ── Erros de coleta (discreto) ──────────────────────────────────────────────
-if erros_coleta:
-    with st.expander(f"⚠️ {len(erros_coleta)} poluente(s) com falha na coleta — clique para ver"):
-        for e in erros_coleta: st.warning(e)
+# Recarregar dados a cada 10 minutos — carrossel roda em JS, sem piscar
+time.sleep(600)
+st.rerun()
